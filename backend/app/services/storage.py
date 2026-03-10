@@ -55,22 +55,8 @@ class LocalStorage:
         return json.loads(filepath.read_text())
 
     def load_audit(self, audit_id: str) -> Optional[dict]:
-        """Load audit data by ID. Alias for load_result used by report routes."""
+        """Load audit data by ID. Alias for load_result for route compatibility."""
         return self.load_result(audit_id)
-
-    def get_report_path(self, audit_id: str) -> Optional[str]:
-        """Get the cached PDF report path for an audit, or None if not cached."""
-        filepath = self.reports_dir / f"{audit_id}.pdf"
-        if filepath.exists():
-            return str(filepath)
-        return None
-
-    def save_report(self, audit_id: str, pdf_bytes: bytes) -> str:
-        """Save a generated PDF report to the reports directory."""
-        filepath = self.reports_dir / f"{audit_id}.pdf"
-        filepath.write_bytes(pdf_bytes)
-        logger.info(f"Report saved: {filepath}")
-        return str(filepath)
 
     def list_results(self) -> list[str]:
         """List all audit result IDs."""
@@ -80,6 +66,20 @@ class LocalStorage:
         """Get absolute path for a screenshot."""
         full_path = self.base_dir / relative_path
         return full_path if full_path.exists() else None
+
+    def get_report_path(self, audit_id: str) -> Optional[str]:
+        """Get the cached PDF report path for an audit, if it exists."""
+        filepath = self.reports_dir / f"{audit_id}.pdf"
+        if filepath.exists():
+            return str(filepath)
+        return None
+
+    def save_report(self, audit_id: str, pdf_bytes: bytes) -> str:
+        """Cache a generated PDF report for an audit."""
+        filepath = self.reports_dir / f"{audit_id}.pdf"
+        filepath.write_bytes(pdf_bytes)
+        logger.info(f"Report cached: {filepath}")
+        return str(filepath)
 
 
 def get_storage() -> LocalStorage:

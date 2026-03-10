@@ -1,44 +1,63 @@
-import { useState } from 'react'
-import AuditForm from './components/AuditForm'
-import AuditStatus from './components/AuditStatus'
-import ReportView from './components/ReportView'
+import { useState } from 'react';
+import AuditForm from './components/AuditForm';
+import AuditStatus from './components/AuditStatus';
+import ReportView from './components/ReportView';
+import './App.css';
 
-export default function App() {
-  const [currentAudit, setCurrentAudit] = useState(null)
-  const [view, setView] = useState('home') // home, auditing, report
+function App() {
+  const [view, setView] = useState('form'); // form | scanning | report
+  const [auditId, setAuditId] = useState(null);
+  const [auditUrl, setAuditUrl] = useState('');
+
+  const handleAuditStarted = (id, url) => {
+    setAuditId(id);
+    setAuditUrl(url);
+    setView('scanning');
+  };
+
+  const handleAuditComplete = (id) => {
+    setView('report');
+  };
+
+  const handleBack = () => {
+    setView('form');
+    setAuditId(null);
+    setAuditUrl('');
+  };
 
   return (
-    <div className="min-h-screen bg-dark-900">
-      {/* Header */}
-      <header className="border-b border-dark-700 px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-shield-500 flex items-center justify-center">
-              <span className="text-white font-bold text-sm">DS</span>
-            </div>
-            <h1 className="text-xl font-bold">DarkShield</h1>
-            <span className="text-xs text-gray-500 bg-dark-700 px-2 py-0.5 rounded">v0.1</span>
-          </div>
-          <nav className="flex gap-4 text-sm text-gray-400">
-            <button onClick={() => setView('home')} className="hover:text-white">New Audit</button>
-            <button className="hover:text-white">History</button>
-            <button className="hover:text-white">Docs</button>
-          </nav>
+    <div className="app">
+      <header className="app-header">
+        <div className="logo" onClick={handleBack} style={{ cursor: 'pointer' }}>
+          <span className="logo-icon">&#x1F6E1;</span>
+          <h1>DarkShield</h1>
         </div>
+        <p className="tagline">AI-Powered Dark Pattern Detection</p>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-6xl mx-auto p-6">
-        {view === 'home' && (
-          <AuditForm onStart={(audit) => { setCurrentAudit(audit); setView('auditing') }} />
+      <main className="app-main">
+        {view === 'form' && (
+          <AuditForm onAuditStarted={handleAuditStarted} />
         )}
-        {view === 'auditing' && (
-          <AuditStatus audit={currentAudit} onComplete={() => setView('report')} />
+
+        {view === 'scanning' && (
+          <AuditStatus
+            auditId={auditId}
+            url={auditUrl}
+            onComplete={handleAuditComplete}
+          />
         )}
+
         {view === 'report' && (
-          <ReportView audit={currentAudit} />
+          <ReportView auditId={auditId} onBack={handleBack} />
         )}
       </main>
+
+      <footer className="app-footer">
+        <p>DarkShield -- Nova Hackathon 2026</p>
+      </footer>
     </div>
-  )
+  );
 }
+
+export default App;

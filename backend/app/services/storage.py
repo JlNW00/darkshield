@@ -81,13 +81,51 @@ class LocalStorage:
         logger.info(f"Report cached: {filepath}")
         return str(filepath)
 
+    # ------------------------------------------------------------------
+    # Aliases used by audit routes
+    # ------------------------------------------------------------------
+    def save_audit(self, audit_id: str, data: dict) -> str:
+        """Save audit data. Alias for save_result for route compatibility."""
+        return self.save_result(audit_id, data)
+
+    def list_audits(self) -> list[str]:
+        """List all audit IDs. Alias for list_results."""
+        return self.list_results()
+
+    def delete_audit(self, audit_id: str) -> bool:
+        """Delete an audit result and its screenshots."""
+        deleted = False
+        result_file = self.results_dir / f"{audit_id}.json"
+        if result_file.exists():
+            result_file.unlink()
+            deleted = True
+        # Also remove screenshots that start with audit_id
+        for f in self.screenshots_dir.glob(f"{audit_id}_*"):
+            f.unlink()
+            deleted = True
+        # Remove cached report
+        report_file = self.reports_dir / f"{audit_id}.pdf"
+        if report_file.exists():
+            report_file.unlink()
+            deleted = True
+        report_html = self.reports_dir / f"{audit_id}.html"
+        if report_html.exists():
+            report_html.unlink()
+            deleted = True
+        return deleted
+
+    def list_screenshots(self, audit_id: str) -> list[str]:
+        """List screenshot paths for a given audit."""
+        return [
+            str(f.relative_to(self.base_dir))
+            for f in self.screenshots_dir.glob(f"{audit_id}_*")
+        ]
+
+
+# -- Singleton ---------------------------------------------------------------
+storage = LocalStorage()
+
 
 def get_storage() -> LocalStorage:
-    """Get or create the storage singleton, using config.data_dir."""
-    global _storage_instance
-    if _storage_instance is None:
-        _storage_instance = LocalStorage()
-    return _storage_instance
-
-
-_storage_instance: Optional[LocalStorage] = None
+    """Return the storage singleton."""
+    return storage

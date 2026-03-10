@@ -9,483 +9,327 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks
 from pydantic import BaseModel, HttpUrl
 
-from app.config import settings
-from app.services.storage import get_storage
+from ..agents.browser_agent import DarkPatternAgent, AuditResult
+from ..agents.classifier import DarkPatternClassifier
+from ..config import settings
+from ..services.storage import storage
 
-logger = logging.getLogger("darkshield.audit")
+logger = logging.getLogger("darkshield.routes.audit")
+
 router = APIRouter(prefix="/api/v1", tags=["audit"])
 
+# ---------------------------------------------------------------------------
+# In-memory tracking for active audits and WebSocket connections
+# ---------------------------------------------------------------------------
+active_audits: dict[str, AuditResult] = {}
+audit_connections: dict[str, list[WebSocket]] = {}
 
-# -- Models --------------------------------------------------------
-
+# ---------------------------------------------------------------------------
+# Request / Response Models
+# ---------------------------------------------------------------------------
 class AuditRequest(BaseModel):
     url: str
     scenarios: Optional[list[str]] = None
 
-
-class AuditStatus(BaseModel):
+class AuditResponse(BaseModel):
     audit_id: str
     status: str
-    url: str
-    created_at: str
-    scenarios_total: int = 0
-    scenarios_completed: int = 0
-    findings_count: int = 0
-    risk_score: Optional[float] = None
+    message: str
 
-
-class AuditResult(BaseModel):
+class AuditStatusResponse(BaseModel):
     audit_id: str
-    status: str  # pending, running, completed, failed
-    url: str
-    created_at: str
+    target_url: str
+    status: str
+    total_patterns: int
+    risk_score: float
+    started_at: str
     completed_at: Optional[str] = None
-    scenarios: list[dict] = []
-    findings: list[dict] = []
-    risk_score: Optional[float] = None
-    summary: Optional[dict] = None
 
-
-# -- In-memory state -----------------------------------------------
-
-active_audits: dict[str, AuditResult] = {}
-audit_connections: dict[str, list[WebSocket]] = {}
-_running_count: int = 0
-_running_lock = asyncio.Lock()
-
-
-# -- WebSocket event broadcasting -----------------------------------
-
+# ---------------------------------------------------------------------------
+# WebSocket event broadcaster
+# ---------------------------------------------------------------------------
 async def broadcast_event(audit_id: str, event: dict):
-    """Send event to all WebSocket connections for an audit."""
+    """Send event to all WebSocket connections for this audit."""
     connections = audit_connections.get(audit_id, [])
+    event["timestamp"] = datetime.now(timezone.utc).isoformat()
+
     dead = []
     for ws in connections:
         try:
             await ws.send_json(event)
         except Exception:
             dead.append(ws)
+
     for ws in dead:
         connections.remove(ws)
 
-
-# -- Audit pipeline -------------------------------------------------
-
-async def run_audit_pipeline(audit_id: str, url: str, scenarios: Optional[list[str]]):
-    """Main audit orchestration: browser agent -> classifier -> storage."""
-    global _running_count
-
-    audit = active_audits[audit_id]
-    audit.status = "running"
-    await broadcast_event(audit_id, {"type": "status", "status": "running"})
-
-    storage = get_storage()
-
+# ---------------------------------------------------------------------------
+# Core audit pipeline
+# ---------------------------------------------------------------------------
+async def run_audit_pipeline(audit_id: str, url: str, scenarios: Optional[list[str]] = None):
+    """
+    Full audit pipeline:
+    1. Launch Nova Act browser agent to detect patterns
+    2. Classify each finding with Nova 2 Lite via Bedrock
+    3. Save screenshots and results to local storage
+    """
     try:
-        # ----------------------------------------------------------------
-        # 1. Run browser agent  (async run_audit, NOT run_scenario)
-        # ----------------------------------------------------------------
-        from app.agents.browser_agent import DarkPatternAgent
+        await broadcast_event(audit_id, {
+            "type": "pipeline_started",
+            "audit_id": audit_id,
+            "url": url,
+            "message": "Initializing dark pattern detection agent...",
+        })
 
-        # FIX #5: config uses nova_act_api_key (not nova_api_key)
+        # Phase 1: Browser Agent
         agent = DarkPatternAgent(nova_act_api_key=settings.nova_act_api_key)
 
-        # FIX #6: config has no default_scenarios; hardcode fallback list
-        selected = scenarios or [
-            "cookie_consent",
-            "subscription_cancel",
-            "checkout_flow",
-            "account_deletion",
-        ]
+        async def on_agent_event(event: dict):
+            await broadcast_event(audit_id, event)
 
-        audit.scenarios = [{"name": s, "status": "pending"} for s in selected]
-
-        await broadcast_event(audit_id, {
-            "type": "scenarios_init",
-            "scenarios": selected,
-            "total": len(selected),
-        })
-
-        # FIX #9: agent exposes async run_audit(url, audit_id, scenarios, on_event)
-        #         which handles all scenarios internally and returns AuditResult.
-        async def _on_agent_event(event: dict):
-            """Bridge browser-agent events to our WebSocket clients."""
-            etype = event.get("type", "")
-
-            if etype == "scenario_started":
-                name = event.get("scenario", "")
-                for s in audit.scenarios:
-                    if s["name"] == name:
-                        s["status"] = "running"
-                await broadcast_event(audit_id, {
-                    "type": "scenario_start",
-                    "scenario": name,
-                })
-
-            elif etype == "scenario_completed":
-                name = event.get("scenario", "")
-                count = event.get("patterns_found", 0)
-                for s in audit.scenarios:
-                    if s["name"] == name:
-                        s["status"] = "completed"
-                        s["findings_count"] = count
-                await broadcast_event(audit_id, {
-                    "type": "scenario_complete",
-                    "scenario": name,
-                    "findings_count": count,
-                })
-
-            else:
-                # Forward agent_action / agent_observation / etc. as-is
-                await broadcast_event(audit_id, event)
-
-        agent_result = await agent.run_audit(
+        audit_result = await agent.run_audit(
             url=url,
             audit_id=audit_id,
-            scenarios=selected,
-            on_event=_on_agent_event,
+            scenarios=scenarios,
+            on_event=on_agent_event,
         )
 
-        # Collect all DetectedPattern objects across scenarios
-        # browser_agent returns ScenarioResult.patterns_found (list of DetectedPattern)
+        active_audits[audit_id] = audit_result
+
+        # Save screenshots from findings
+        for scenario in audit_result.scenarios:
+            for pattern in scenario.patterns_found:
+                if pattern.screenshot_b64:
+                    path = storage.save_screenshot(
+                        audit_id=audit_id,
+                        name=f"{pattern.scenario}_{pattern.pattern_id}",
+                        image_b64=pattern.screenshot_b64,
+                    )
+                    pattern.screenshot_path = path
+                    pattern.screenshot_b64 = None  # Free memory
+
+        await broadcast_event(audit_id, {
+            "type": "classification_started",
+            "audit_id": audit_id,
+            "message": f"Classifying {audit_result.total_patterns} detected patterns with AI...",
+        })
+
+        # Phase 2: Classification
         all_patterns = [
-            p
-            for scenario_result in agent_result.scenarios
-            for p in scenario_result.patterns_found
+            p for s in audit_result.scenarios for p in s.patterns_found
         ]
 
-        # Save screenshots
-        for pattern in all_patterns:
-            if pattern.screenshot_b64:
-                ss_path = storage.save_screenshot(
-                    audit_id, pattern.pattern_id, pattern.screenshot_b64
-                )
-                pattern.screenshot_path = ss_path
-
-        # ----------------------------------------------------------------
-        # 2. Classify findings with Nova 2 Lite
-        # ----------------------------------------------------------------
+        classifications = []
         if all_patterns:
-            await broadcast_event(audit_id, {"type": "status", "status": "classifying"})
+            try:
+                classifier = DarkPatternClassifier(
+                    aws_region=settings.aws_region,
+                    aws_access_key_id=settings.aws_access_key_id,
+                    aws_secret_access_key=settings.aws_secret_access_key,
+                )
 
-            from app.agents.classifier import DarkPatternClassifier
-
-            # FIX #8: classifier __init__ takes aws_region, aws_access_key_id,
-            #         aws_secret_access_key  (NOT model_id / region)
-            classifier = DarkPatternClassifier(
-                aws_region=settings.aws_region,
-                aws_access_key_id=settings.aws_access_key_id,
-                aws_secret_access_key=settings.aws_secret_access_key,
-            )
-
-            classified = []
-            for pattern in all_patterns:
-                try:
-                    # FIX #8: method is classify_pattern() with keyword args,
-                    #         NOT classify(pattern)
-                    classification = await classifier.classify_pattern(
-                        pattern_id=pattern.pattern_id,
-                        category=(
-                            pattern.category.value
-                            if hasattr(pattern.category, "value")
-                            else str(pattern.category)
-                        ),
-                        description=pattern.description,
-                        evidence=pattern.evidence,
-                        screenshot_b64=pattern.screenshot_b64,
-                        dom_context=pattern.dom_snapshot,
-                    )
-
-                    finding = {
-                        "pattern_id": pattern.pattern_id,
-                        "category": classification.ai_category,
-                        "severity": classification.severity,
-                        "scenario": pattern.scenario,
-                        "description": classification.description,
-                        "evidence": classification.evidence_summary,
-                        "url": pattern.url,
-                        "confidence": classification.ai_confidence,
-                        "screenshot_path": getattr(pattern, "screenshot_path", None),
-                        # Classification enrichment
-                        "oecd_guideline": classification.oecd_reference.get("guideline"),
-                        "remediation": classification.remediation,
-                        "regulatory_risk": classification.oecd_reference.get("regulation"),
-                        "ai_reasoning": classification.ai_reasoning,
+                pattern_dicts = [
+                    {
+                        "pattern_id": p.pattern_id,
+                        "category": p.category.value if hasattr(p.category, "value") else p.category,
+                        "description": p.description,
+                        "evidence": p.evidence,
+                        "screenshot_b64": p.screenshot_b64,
                     }
-                    classified.append(finding)
+                    for p in all_patterns
+                ]
 
-                except Exception as e:
-                    logger.error(f"Classification failed for {pattern.pattern_id}: {e}")
-                    classified.append({
-                        "pattern_id": pattern.pattern_id,
-                        "category": (
-                            pattern.category.value
-                            if hasattr(pattern.category, "value")
-                            else str(pattern.category)
-                        ),
-                        "severity": (
-                            pattern.severity.value
-                            if hasattr(pattern.severity, "value")
-                            else str(pattern.severity)
-                        ),
-                        "scenario": pattern.scenario,
-                        "description": pattern.description,
-                        "evidence": pattern.evidence,
-                        "url": pattern.url,
-                        "confidence": pattern.confidence,
-                        "screenshot_path": getattr(pattern, "screenshot_path", None),
-                    })
+                classifications = await classifier.classify_batch(pattern_dicts)
 
-            audit.findings = classified
-        else:
-            audit.findings = []
+                await broadcast_event(audit_id, {
+                    "type": "classification_completed",
+                    "audit_id": audit_id,
+                    "classified": len(classifications),
+                })
 
-        # ----------------------------------------------------------------
-        # 3. Calculate risk score
-        # ----------------------------------------------------------------
-        risk_score = _calculate_risk_score(audit.findings)
-        audit.risk_score = risk_score
+            except Exception as exc:
+                logger.exception("Classification pipeline failed")
+                await broadcast_event(audit_id, {
+                    "type": "classification_error",
+                    "audit_id": audit_id,
+                    "error": str(exc),
+                    "message": "Classification failed - using browser agent's raw findings",
+                })
 
-        # ----------------------------------------------------------------
-        # 4. Build summary
-        # ----------------------------------------------------------------
-        audit.summary = _build_summary(audit.findings, risk_score)
+        # Phase 3: Save results
+        result_data = audit_result.to_dict()
+        result_data["classifications"] = [c.to_dict() for c in classifications]
 
-        # ----------------------------------------------------------------
-        # 5. Persist results
-        # FIX #7: storage exposes save_result(audit_id, data), NOT save_audit(record)
-        # ----------------------------------------------------------------
-        storage.save_result(audit_id, audit.model_dump())
-
-        # ----------------------------------------------------------------
-        # 6. Mark complete
-        # ----------------------------------------------------------------
-        audit.status = "completed"
-        audit.completed_at = datetime.now(timezone.utc).isoformat()
+        storage.save_audit(audit_id, result_data)
 
         await broadcast_event(audit_id, {
-            "type": "complete",
-            "status": "completed",
-            "risk_score": risk_score,
-            "findings_count": len(audit.findings),
-            "summary": audit.summary,
+            "type": "pipeline_completed",
+            "audit_id": audit_id,
+            "total_patterns": audit_result.total_patterns,
+            "risk_score": audit_result.risk_score,
+            "message": f"Audit complete. Found {audit_result.total_patterns} dark patterns. Risk score: {audit_result.risk_score}/10",
         })
 
-        logger.info(
-            f"Audit {audit_id} completed: {len(audit.findings)} findings, "
-            f"risk={risk_score:.1f}"
+    except Exception as exc:
+        logger.exception("Audit pipeline failed for %s", url)
+        await broadcast_event(audit_id, {
+            "type": "pipeline_error",
+            "audit_id": audit_id,
+            "error": str(exc),
+            "message": f"Audit failed: {exc}",
+        })
+
+        # Save error state
+        storage.save_audit(audit_id, {
+            "audit_id": audit_id,
+            "target_url": url,
+            "status": "failed",
+            "error": str(exc),
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+# ---------------------------------------------------------------------------
+# REST Endpoints
+# ---------------------------------------------------------------------------
+@router.post("/audit", response_model=AuditResponse)
+async def start_audit(request: AuditRequest, background_tasks: BackgroundTasks):
+    """Start a new dark pattern audit."""
+    # Validate
+    config_warnings = settings.validate()
+    if any("NOVA_ACT_API_KEY" in w for w in config_warnings):
+        raise HTTPException(
+            status_code=503,
+            detail="NOVA_ACT_API_KEY not configured. Set it in your .env file.",
         )
 
-    except Exception as e:
-        audit.status = "failed"
-        audit.completed_at = datetime.now(timezone.utc).isoformat()
-        logger.error(f"Audit {audit_id} failed: {e}")
-        await broadcast_event(audit_id, {
-            "type": "error",
-            "status": "failed",
-            "error": str(e),
-        })
+    # Check concurrent audit limit
+    running = sum(1 for a in active_audits.values() if a.status == "running")
+    if running >= settings.max_concurrent_audits:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Maximum {settings.max_concurrent_audits} concurrent audits. Try again later.",
+        )
 
-    finally:
-        async with _running_lock:
-            _running_count -= 1
+    audit_id = f"audit-{uuid.uuid4().hex[:12]}"
 
+    # Launch pipeline in background
+    background_tasks.add_task(run_audit_pipeline, audit_id, str(request.url), request.scenarios)
 
-def _calculate_risk_score(findings: list[dict]) -> float:
-    """Calculate overall risk score 0-100 from classified findings."""
-    if not findings:
-        return 0.0
-
-    severity_weights = {"critical": 25, "high": 15, "medium": 8, "low": 3}
-    total = 0.0
-    for f in findings:
-        sev = f.get("severity", "low").lower()
-        confidence = f.get("confidence", 0.5)
-        weight = severity_weights.get(sev, 3)
-        total += weight * confidence
-
-    score = min(total, 100.0)
-    return round(score, 1)
-
-
-def _build_summary(findings: list[dict], risk_score: float) -> dict:
-    """Build a structured summary of audit results."""
-    by_severity = {}
-    by_category = {}
-
-    for f in findings:
-        sev = f.get("severity", "unknown")
-        cat = f.get("category", "unknown")
-        by_severity[sev] = by_severity.get(sev, 0) + 1
-        by_category[cat] = by_category.get(cat, 0) + 1
-
-    risk_level = "low"
-    if risk_score >= 70:
-        risk_level = "critical"
-    elif risk_score >= 45:
-        risk_level = "high"
-    elif risk_score >= 20:
-        risk_level = "medium"
-
-    return {
-        "total_findings": len(findings),
-        "risk_score": risk_score,
-        "risk_level": risk_level,
-        "by_severity": by_severity,
-        "by_category": by_category,
-    }
-
-
-# -- REST endpoints -------------------------------------------------
-# FIX #1, #2, #3: routes match what useApi.js calls:
-#   POST /api/v1/audit          (singular)
-#   GET  /api/v1/audit/{id}     (singular)
-#   GET  /api/v1/audit/{id}/patterns
-#   GET  /api/v1/audits         (plural - list only)
-
-@router.post("/audit", response_model=AuditStatus)
-async def start_audit(request: AuditRequest):
-    """Start a new dark pattern audit for a URL."""
-    global _running_count
-
-    async with _running_lock:
-        if _running_count >= settings.max_concurrent_audits:
-            raise HTTPException(
-                status_code=429,
-                detail=f"Max concurrent audits ({settings.max_concurrent_audits}) reached. Try again later.",
-            )
-        _running_count += 1
-
-    audit_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
-
-    audit = AuditResult(
+    return AuditResponse(
         audit_id=audit_id,
-        status="pending",
-        url=str(request.url),
-        created_at=now,
-    )
-    active_audits[audit_id] = audit
-
-    asyncio.create_task(run_audit_pipeline(audit_id, str(request.url), request.scenarios))
-
-    selected = request.scenarios or [
-        "cookie_consent",
-        "subscription_cancel",
-        "checkout_flow",
-        "account_deletion",
-    ]
-
-    return AuditStatus(
-        audit_id=audit_id,
-        status="pending",
-        url=str(request.url),
-        created_at=now,
-        scenarios_total=len(selected),
+        status="started",
+        message=f"Audit started for {request.url}. Connect to WebSocket /ws/audit/{audit_id} for real-time updates.",
     )
 
-
-@router.get("/audit/{audit_id}", response_model=AuditResult)
+@router.get("/audit/{audit_id}")
 async def get_audit(audit_id: str):
-    """Get current audit status and results."""
-    if audit_id not in active_audits:
-        storage = get_storage()
-        data = storage.load_audit(audit_id)
-        if data:
-            return AuditResult(**data)
-        raise HTTPException(status_code=404, detail="Audit not found")
-    return active_audits[audit_id]
+    """Get audit results."""
+    # Check in-memory first (for running audits)
+    if audit_id in active_audits:
+        return active_audits[audit_id].to_dict()
 
+    # Check storage
+    result = storage.load_audit(audit_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Audit {audit_id} not found")
+
+    return result
 
 @router.get("/audit/{audit_id}/patterns")
 async def get_audit_patterns(audit_id: str):
-    """Get classified patterns for an audit."""
-    if audit_id not in active_audits:
-        storage = get_storage()
-        data = storage.load_audit(audit_id)
-        if data:
-            return data.get("findings", [])
-        raise HTTPException(status_code=404, detail="Audit not found")
-    return active_audits[audit_id].findings
+    """Get just the patterns from an audit."""
+    result = storage.load_audit(audit_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Audit {audit_id} not found")
 
+    patterns = []
+    for scenario in result.get("scenarios", []):
+        for pattern in scenario.get("patterns_found", []):
+            pattern["scenario_name"] = scenario.get("scenario_name", "")
+            patterns.append(pattern)
 
-@router.get("/audits", response_model=list[AuditStatus])
+    return {
+        "audit_id": audit_id,
+        "total": len(patterns),
+        "patterns": patterns,
+        "classifications": result.get("classifications", []),
+    }
+
+@router.get("/audits")
 async def list_audits():
-    """List all audits (in-memory + stored)."""
-    results = []
+    """List all completed audits."""
+    return {"audits": storage.list_audits()}
 
-    for audit in active_audits.values():
-        results.append(AuditStatus(
-            audit_id=audit.audit_id,
-            status=audit.status,
-            url=audit.url,
-            created_at=audit.created_at,
-            scenarios_total=len(audit.scenarios),
-            scenarios_completed=sum(
-                1 for s in audit.scenarios if s.get("status") == "completed"
-            ),
-            findings_count=len(audit.findings),
-            risk_score=audit.risk_score,
-        ))
+@router.delete("/audit/{audit_id}")
+async def delete_audit(audit_id: str):
+    """Delete an audit and its data."""
+    if storage.delete_audit(audit_id):
+        active_audits.pop(audit_id, None)
+        return {"message": f"Audit {audit_id} deleted"}
+    raise HTTPException(status_code=404, detail=f"Audit {audit_id} not found")
 
-    storage = get_storage()
-    stored_ids = storage.list_audit_ids()
-    for sid in stored_ids:
-        if sid not in active_audits:
-            data = storage.load_audit(sid)
-            if data:
-                results.append(AuditStatus(
-                    audit_id=data["audit_id"],
-                    status=data["status"],
-                    url=data["url"],
-                    created_at=data["created_at"],
-                    scenarios_total=len(data.get("scenarios", [])),
-                    scenarios_completed=sum(
-                        1 for s in data.get("scenarios", [])
-                        if s.get("status") == "completed"
-                    ),
-                    findings_count=len(data.get("findings", [])),
-                    risk_score=data.get("risk_score"),
-                ))
+@router.get("/audit/{audit_id}/screenshots")
+async def list_audit_screenshots(audit_id: str):
+    """List screenshots for an audit."""
+    screenshots = storage.list_screenshots(audit_id)
+    return {"audit_id": audit_id, "screenshots": screenshots}
 
-    return sorted(results, key=lambda x: x.created_at, reverse=True)
+@router.get("/health")
+async def health_check():
+    """Health check with config validation."""
+    warnings = settings.validate()
+    return {
+        "status": "healthy",
+        "warnings": warnings,
+        "nova_act_configured": bool(settings.nova_act_api_key),
+        "aws_configured": bool(settings.aws_access_key_id and settings.aws_secret_access_key),
+    }
 
-
-# -- WebSocket endpoint ---------------------------------------------
-# FIX #4: path is /ws/audit/{id} to match useApi.js
-
+# ---------------------------------------------------------------------------
+# WebSocket for real-time audit streaming
+# ---------------------------------------------------------------------------
 @router.websocket("/ws/audit/{audit_id}")
-async def audit_websocket(websocket: WebSocket, audit_id: str):
-    """WebSocket endpoint for real-time audit progress updates."""
+async def websocket_audit(websocket: WebSocket, audit_id: str):
+    """WebSocket endpoint for real-time audit progress."""
     await websocket.accept()
 
     if audit_id not in audit_connections:
         audit_connections[audit_id] = []
     audit_connections[audit_id].append(websocket)
 
+    logger.info("WebSocket connected for audit %s", audit_id)
+
     try:
-        if audit_id in active_audits:
-            audit = active_audits[audit_id]
+        # Send current state if audit exists
+        existing = storage.load_audit(audit_id)
+        if existing:
             await websocket.send_json({
-                "type": "state",
+                "type": "audit_state",
                 "audit_id": audit_id,
-                "status": audit.status,
-                "scenarios": audit.scenarios,
-                "findings_count": len(audit.findings),
-                "risk_score": audit.risk_score,
+                "data": existing,
             })
 
+        # Keep connection alive
         while True:
             try:
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=30)
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                # Handle ping/pong
+                if data == "ping":
+                    await websocket.send_text("pong")
             except asyncio.TimeoutError:
-                await websocket.send_json({"type": "heartbeat"})
+                # Send keepalive
+                try:
+                    await websocket.send_json({"type": "keepalive"})
+                except Exception:
+                    break
 
     except WebSocketDisconnect:
-        pass
+        logger.info("WebSocket disconnected for audit %s", audit_id)
+    except Exception:
+        logger.exception("WebSocket error for audit %s", audit_id)
     finally:
         if audit_id in audit_connections:
             try:

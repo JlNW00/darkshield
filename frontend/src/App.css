@@ -1,0 +1,245 @@
+/* ============================================
+   DarkShield - Dark Pattern Detection Dashboard
+   ============================================ */
+
+:root {
+  --bg-primary: #0f0d1a;
+  --bg-secondary: #1a1730;
+  --bg-card: #211e35;
+  --text-primary: #e2e0f0;
+  --text-secondary: #9895b0;
+  --accent: #6366f1;
+  --accent-light: #818cf8;
+  --border: #2d2a45;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --critical: #dc2626;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
+}
+
+.app { max-width: 900px; margin: 0 auto; padding: 20px; }
+
+/* Header */
+.app-header { text-align: center; padding: 30px 0 20px; }
+.logo { display: inline-flex; align-items: center; gap: 10px; }
+.logo-icon { font-size: 32px; }
+.logo h1 { font-size: 28px; color: var(--accent-light); font-weight: 700; }
+.tagline { color: var(--text-secondary); font-size: 14px; margin-top: 4px; }
+
+/* Audit Form */
+.audit-form {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 30px;
+  margin-top: 20px;
+}
+.form-header h2 { font-size: 20px; color: var(--text-primary); }
+.form-header p { color: var(--text-secondary); font-size: 13px; margin-top: 4px; margin-bottom: 20px; }
+
+.url-input-group { display: flex; gap: 10px; }
+.url-input {
+  flex: 1; padding: 12px 16px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg-secondary);
+  color: var(--text-primary); font-size: 14px; outline: none;
+  transition: border-color 0.2s;
+}
+.url-input:focus { border-color: var(--accent); }
+.url-input:disabled { opacity: 0.5; }
+
+.scan-button {
+  padding: 12px 28px; border-radius: 8px; border: none;
+  background: var(--accent); color: white; font-weight: 600;
+  font-size: 14px; cursor: pointer; transition: background 0.2s;
+  white-space: nowrap;
+}
+.scan-button:hover { background: var(--accent-light); }
+.scan-button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.loading-spinner { animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+.error-message {
+  color: var(--danger); background: rgba(239,68,68,0.1);
+  padding: 8px 14px; border-radius: 6px; margin-top: 10px; font-size: 13px;
+}
+
+.preset-urls { display: flex; gap: 8px; margin-top: 14px; }
+.preset-button {
+  padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border);
+  background: transparent; color: var(--text-secondary); font-size: 12px;
+  cursor: pointer; transition: all 0.2s;
+}
+.preset-button:hover { border-color: var(--accent); color: var(--accent-light); }
+
+.scenario-selector { margin-top: 16px; }
+.scenario-label { color: var(--text-secondary); font-size: 12px; margin-bottom: 8px; }
+.scenario-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.scenario-chip {
+  padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border);
+  background: transparent; color: var(--text-secondary); font-size: 12px;
+  cursor: pointer; transition: all 0.2s;
+}
+.scenario-chip:hover { border-color: var(--accent); }
+.scenario-chip.active {
+  background: var(--accent); color: white; border-color: var(--accent);
+}
+
+/* Audit Status */
+.audit-status {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 24px; margin-top: 20px;
+}
+.status-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.status-badge {
+  padding: 4px 14px; border-radius: 20px; color: white;
+  font-size: 12px; font-weight: 600;
+}
+.status-url { color: var(--text-secondary); font-size: 13px; }
+.patterns-count { color: var(--warning); font-weight: 600; font-size: 13px; margin-left: auto; }
+
+.current-scenario {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; background: var(--bg-secondary);
+  border-radius: 8px; margin-bottom: 12px; font-size: 13px;
+}
+.pulse-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+  animation: pulse-dot 1s infinite;
+}
+@keyframes pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.8); } }
+
+.event-feed {
+  max-height: 400px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px; padding: 12px; background: var(--bg-primary);
+  border-radius: 8px; border: 1px solid var(--border);
+}
+.event-line { padding: 3px 0; display: flex; gap: 10px; }
+.event-time { color: var(--text-secondary); min-width: 75px; }
+.event-msg { color: var(--text-primary); }
+.event-pipeline_completed .event-msg { color: var(--success); font-weight: 600; }
+.event-pipeline_error .event-msg { color: var(--danger); }
+.event-scenario_started .event-msg { color: var(--accent-light); }
+.typing-indicator { color: var(--text-secondary); animation: pulse 1s infinite; }
+
+/* Report View */
+.report-view { margin-top: 20px; }
+.report-header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.report-header h2 { flex: 1; font-size: 20px; }
+.back-button, .download-button {
+  padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border);
+  background: transparent; color: var(--text-secondary); font-size: 13px;
+  cursor: pointer; text-decoration: none; transition: all 0.2s;
+}
+.back-button:hover, .download-button:hover { border-color: var(--accent); color: var(--accent-light); }
+.download-button { background: var(--accent); color: white; border-color: var(--accent); }
+
+.risk-score-card {
+  display: flex; gap: 24px; align-items: center;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 24px; margin-bottom: 20px;
+}
+.risk-score-circle {
+  width: 90px; height: 90px; border-radius: 50%;
+  border: 5px solid; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; flex-shrink: 0;
+}
+.risk-number { font-size: 28px; font-weight: 800; }
+.risk-max { font-size: 11px; color: var(--text-secondary); }
+.risk-info h3 { font-size: 18px; margin-bottom: 4px; }
+.risk-info p { color: var(--text-secondary); font-size: 13px; }
+.risk-url { word-break: break-all; }
+
+/* Severity Heatmap */
+.severity-heatmap {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px; margin-bottom: 20px;
+}
+.severity-heatmap h3 { margin-top: 0; border: none; padding: 0; margin-bottom: 14px; }
+.heatmap-grid { display: grid; grid-template-columns: 180px repeat(4, 1fr); gap: 4px; }
+.heatmap-cell { padding: 8px 10px; text-align: center; border-radius: 6px; font-size: 12px; }
+.heatmap-corner { background: transparent; }
+.heatmap-header { font-weight: 600; background: var(--bg-secondary); }
+.heatmap-label { text-align: left; font-weight: 500; display: flex; gap: 6px; align-items: center; }
+.heatmap-value { color: white; font-weight: 700; min-height: 36px; display: flex; align-items: center; justify-content: center; }
+.heatmap-row { display: contents; }
+.heatmap-summary { display: flex; gap: 16px; margin-top: 14px; justify-content: center; }
+.summary-stat { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.summary-dot { width: 10px; height: 10px; border-radius: 50%; }
+.summary-count { font-weight: 600; }
+
+/* Pattern Cards */
+.scenario-breakdown { margin-top: 20px; }
+.scenario-section {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px; margin-bottom: 16px;
+}
+.scenario-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.scenario-header h4 { font-size: 15px; }
+.scenario-stats { color: var(--text-secondary); font-size: 12px; }
+.no-patterns { color: var(--success); font-size: 13px; }
+
+.pattern-card {
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px; margin-bottom: 10px;
+  cursor: pointer; transition: border-color 0.2s;
+}
+.pattern-card:hover { border-color: var(--accent); }
+.pattern-card.expanded { border-color: var(--accent-light); }
+
+.pattern-detail { }
+.pattern-header { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.severity-badge {
+  padding: 2px 10px; border-radius: 10px; color: white;
+  font-size: 11px; font-weight: 600;
+}
+.pattern-category { font-weight: 600; font-size: 13px; }
+.pattern-scenario { color: var(--text-secondary); font-size: 11px; }
+
+.pattern-body { font-size: 13px; }
+.pattern-description { margin-bottom: 8px; line-height: 1.5; }
+.pattern-evidence {
+  background: var(--bg-primary); padding: 10px 14px; border-radius: 6px;
+  margin-bottom: 10px; color: var(--text-secondary);
+}
+.pattern-evidence strong { color: var(--text-primary); }
+
+.confidence-bar { margin-bottom: 10px; }
+.confidence-label { font-size: 11px; color: var(--text-secondary); }
+.confidence-track { height: 6px; background: var(--bg-primary); border-radius: 3px; margin-top: 4px; }
+.confidence-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+
+.pattern-reasoning {
+  color: var(--text-secondary); font-style: italic;
+  margin-bottom: 10px; font-size: 12px;
+}
+.oecd-reference {
+  background: rgba(99,102,241,0.1); padding: 10px 14px;
+  border-radius: 6px; margin-bottom: 10px; font-size: 12px;
+}
+.oecd-details { margin-top: 6px; color: var(--text-secondary); line-height: 1.6; }
+.oecd-details em { color: var(--accent-light); }
+
+.remediation { margin-top: 10px; }
+.remediation ul { padding-left: 20px; }
+.remediation li { color: var(--success); margin-bottom: 4px; font-size: 12px; }
+
+/* Footer */
+.app-footer { text-align: center; padding: 30px 0 10px; color: var(--text-secondary); font-size: 12px; }
+
+.loading { text-align: center; padding: 40px; color: var(--text-secondary); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }

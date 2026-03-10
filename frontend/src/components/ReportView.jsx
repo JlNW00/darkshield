@@ -1,70 +1,132 @@
-export default function ReportView({ audit }) {
-  // TODO: Fetch full report data from API
-  const mockPatterns = [
-    { type: 'confirmshaming', severity: 'high', element: '.cancel-btn', desc: 'Guilt-trip language on cancellation button' },
-    { type: 'misdirection', severity: 'medium', element: '.cookie-accept', desc: 'Accept button 3x larger than reject' },
-    { type: 'hidden_costs', severity: 'critical', element: '.checkout-total', desc: 'Service fee added at final checkout step' },
-  ]
+import { useState, useEffect } from 'react';
+import { getAudit, getAuditPatterns, getReportUrl } from '../hooks/useApi';
+import SeverityHeatmap from './SeverityHeatmap';
+import PatternDetail from './PatternDetail';
 
-  const severityColor = {
-    low: 'text-gray-400 bg-gray-400/10',
-    medium: 'text-warn-400 bg-warn-400/10',
-    high: 'text-orange-400 bg-orange-400/10',
-    critical: 'text-danger-400 bg-danger-400/10',
-  }
+export default function ReportView({ auditId, onBack }) {
+  const [audit, setAudit] = useState(null);
+  const [patterns, setPatterns] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [expandedPattern, setExpandedPattern] = useState(null);
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [auditData, patternData] = await Promise.all([
+          getAudit(auditId),
+          getAuditPatterns(auditId),
+        ]);
+        setAudit(auditData);
+        setPatterns(patternData);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, [auditId]);
+
+  if (loading) return <div className="loading">Loading audit results...</div>;
+  if (error) return <div className="error-message">{error}</div>;
+  if (!audit) return null;
+
+  const riskLevel =
+    audit.risk_score >= 7 ? 'critical' :
+    audit.risk_score >= 4 ? 'high' :
+    audit.risk_score >= 2 ? 'medium' : 'low';
+
+  const riskColors = {
+    critical: '#dc2626',
+    high: '#ef4444',
+    medium: '#f59e0b',
+    low: '#22c55e',
+  };
+
+  // Map classifications by pattern_id
+  const classMap = {};
+  (patterns?.classifications || []).forEach((c) => {
+    classMap[c.pattern_id] = c;
+  });
+
+  const allPatterns = patterns?.patterns || [];
 
   return (
-    <div className="max-w-4xl mx-auto mt-10">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h2 className="text-2xl font-bold">Audit Report</h2>
-          <p className="text-gray-400 mt-1">{audit?.url}</p>
+    <div className="report-view">
+      <div className="report-header">
+        <button onClick={onBack} className="back-button">
+          Back
+        </button>
+        <h2>Audit Report</h2>
+        <a
+          href={`${getReportUrl(auditId)}`}
+          target="_blank"
+          rel="noopener"
+          className="download-button"
+        >
+          Download PDF
+        </a>
+      </div>
+
+      {/* Risk Score */}
+      <div className="risk-score-card">
+        <div className="risk-score-circle" style={{ borderColor: riskColors[riskLevel] }}>
+          <span className="risk-number">{audit.risk_score}</span>
+          <span className="risk-max">/10</span>
         </div>
-        <div className="text-right">
-          <div className="text-3xl font-bold text-danger-400">{mockPatterns.length}</div>
-          <div className="text-sm text-gray-400">patterns found</div>
+        <div className="risk-info">
+          <h3 style={{ color: riskColors[riskLevel] }}>
+            {riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1)} Risk
+          </h3>
+          <p>{audit.total_patterns} dark patterns detected across {audit.scenarios?.length || 0} scenarios</p>
+          <p className="risk-url">{audit.target_url}</p>
+          <p className="risk-time">
+            Completed: {audit.completed_at ? new Date(audit.completed_at).toLocaleString() : 'In progress'}
+          </p>
         </div>
       </div>
 
-      {/* Severity Summary */}
-      <div className="grid grid-cols-4 gap-3 mb-8">
-        {['critical', 'high', 'medium', 'low'].map(sev => (
-          <div key={sev} className="bg-dark-800 border border-dark-700 rounded-lg p-4 text-center">
-            <div className={`text-2xl font-bold ${severityColor[sev].split(' ')[0]}`}>
-              {mockPatterns.filter(p => p.severity === sev).length}
+      {/* Severity Heatmap */}
+      <SeverityHeatmap scenarios={audit.scenarios || []} />
+
+      {/* Scenario Breakdown */}
+      <div className="scenario-breakdown">
+        <h3>Scenario Results</h3>
+        {(audit.scenarios || []).map((scenario) => (
+          <div key={scenario.scenario_name} className="scenario-section">
+            <div className="scenario-header">
+              <h4>{scenario.scenario_name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}</h4>
+              <span className="scenario-stats">
+                {scenario.patterns_found?.length || 0} patterns | {scenario.steps_taken} steps | {scenario.duration_seconds}s
+              </span>
             </div>
-            <div className="text-xs text-gray-400 capitalize mt-1">{sev}</div>
+
+            {(scenario.patterns_found || []).length === 0 ? (
+              <p className="no-patterns">No dark patterns detected in this scenario.</p>
+            ) : (
+              <div className="patterns-list">
+                {(scenario.patterns_found || []).map((pattern) => (
+                  <div
+                    key={pattern.pattern_id}
+                    className={`pattern-card ${expandedPattern === pattern.pattern_id ? 'expanded' : ''}`}
+                    onClick={() =>
+                      setExpandedPattern(
+                        expandedPattern === pattern.pattern_id ? null : pattern.pattern_id
+                      )
+                    }
+                  >
+                    <PatternDetail
+                      pattern={pattern}
+                      classification={classMap[pattern.pattern_id]}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
-
-      {/* Findings Table */}
-      <div className="bg-dark-800 rounded-lg border border-dark-700 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-dark-700 text-gray-400 text-left">
-              <th className="px-4 py-3">Pattern</th>
-              <th className="px-4 py-3">Severity</th>
-              <th className="px-4 py-3">Element</th>
-              <th className="px-4 py-3">Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            {mockPatterns.map((p, i) => (
-              <tr key={i} className="border-b border-dark-700/50 hover:bg-dark-700/30">
-                <td className="px-4 py-3 font-medium">{p.type.replace('_', ' ')}</td>
-                <td className="px-4 py-3">
-                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${severityColor[p.severity]}`}>
-                    {p.severity}
-                  </span>
-                </td>
-                <td className="px-4 py-3 font-mono text-xs text-gray-400">{p.element}</td>
-                <td className="px-4 py-3 text-gray-300">{p.desc}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
-  )
+  );
 }

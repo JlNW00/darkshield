@@ -1,1 +1,1 @@
-# Routes package
+"""DarkShield routes - API endpoints."""

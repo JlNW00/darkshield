@@ -1,1 +1,1 @@
-# DarkShield Backend
+"""DarkShield - AI-powered dark pattern detection."""

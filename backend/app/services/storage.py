@@ -29,7 +29,9 @@ class LocalStorage:
     # ------------------------------------------------------------------
     # Screenshots
     # ------------------------------------------------------------------
-    def save_screenshot(self, audit_id: str, name: str, image_b64: str) -> str:
+    def save_screenshot(
+        self, audit_id: str, name: str, image_b64: str
+    ) -> str:
         """Save a base64 screenshot to disk. Returns the file path."""
         audit_dir = self.screenshots_dir / audit_id
         audit_dir.mkdir(parents=True, exist_ok=True)
@@ -64,7 +66,9 @@ class LocalStorage:
     def save_audit(self, audit_id: str, audit_data: dict) -> str:
         """Save audit results as JSON. Returns the file path."""
         filepath = self.audits_dir / f"{audit_id}.json"
+
         audit_data["saved_at"] = datetime.now(timezone.utc).isoformat()
+
         try:
             filepath.write_text(json.dumps(audit_data, indent=2, default=str))
             logger.info("Saved audit: %s", filepath)

@@ -22,12 +22,6 @@ export async function startAudit(url, scenarios = null) {
   return res.json();
 }
 
-export async function getAuditResult(auditId) {
-  const res = await fetch(`${API_BASE}/api/v1/audit/${auditId}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
 export async function getAudit(auditId) {
   const res = await fetch(`${API_BASE}/api/v1/audit/${auditId}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -36,6 +30,12 @@ export async function getAudit(auditId) {
 
 export async function getAuditPatterns(auditId) {
   const res = await fetch(`${API_BASE}/api/v1/audit/${auditId}/patterns`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function getAuditResult(auditId) {
+  const res = await fetch(`${API_BASE}/api/v1/audit/${auditId}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }

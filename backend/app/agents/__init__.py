@@ -1,1 +1,1 @@
-# Nova Act agent modules
+"""DarkShield agents - Browser automation and classification."""

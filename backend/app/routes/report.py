@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response, HTMLResponse
 
-from ..services.storage import storage
+from ..services.storage import get_storage
 from ..services.report_generator import generate_pdf, generate_report_html
 
 logger = logging.getLogger("darkshield.routes.report")
@@ -22,6 +22,7 @@ async def download_report(audit_id: str, format: str = "pdf"):
     Query params:
         format: 'pdf' (default) or 'html'
     """
+    storage = get_storage()
     audit_data = storage.load_audit(audit_id)
     if audit_data is None:
         raise HTTPException(status_code=404, detail=f"Audit {audit_id} not found")

@@ -1,1 +1,1 @@
-# DarkShield Services
+"""DarkShield services - Storage and report generation."""

@@ -1,82 +1,107 @@
-import { useState } from 'react'
-import axios from 'axios'
+import { useState } from 'react';
+import { startAudit, SCENARIO_LABELS } from '../hooks/useApi';
 
-const SCENARIOS = [
-  { id: 'cookie_consent', label: 'Cookie Consent', icon: '🍪' },
-  { id: 'subscription_cancel', label: 'Subscription Cancel', icon: '❌' },
-  { id: 'checkout_flow', label: 'Checkout Flow', icon: '🛒' },
-  { id: 'account_deletion', label: 'Account Deletion', icon: '🗑️' },
-]
+const PRESET_URLS = [
+  { label: 'Amazon', url: 'https://www.amazon.com' },
+  { label: 'Facebook', url: 'https://www.facebook.com/settings' },
+  { label: 'LinkedIn', url: 'https://www.linkedin.com/premium' },
+];
 
-export default function AuditForm({ onStart }) {
-  const [url, setUrl] = useState('')
-  const [selected, setSelected] = useState(SCENARIOS.map(s => s.id))
-  const [loading, setLoading] = useState(false)
+export default function AuditForm({ onAuditStarted }) {
+  const [url, setUrl] = useState('');
+  const [selectedScenarios, setSelectedScenarios] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const toggleScenario = (key) => {
+    setSelectedScenarios((prev) =>
+      prev.includes(key) ? prev.filter((s) => s !== key) : [...prev, key]
+    );
+  };
 
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    setLoading(true)
-    try {
-      const { data } = await axios.post('/api/v1/audit', {
-        url,
-        check_categories: selected,
-      })
-      onStart(data)
-    } catch (err) {
-      console.error('Audit failed:', err)
-    } finally {
-      setLoading(false)
+    e.preventDefault();
+    if (!url.trim()) {
+      setError('Please enter a URL');
+      return;
     }
-  }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      let targetUrl = url.trim();
+      if (!targetUrl.startsWith('http')) targetUrl = `https://${targetUrl}`;
+
+      const scenarios = selectedScenarios.length > 0 ? selectedScenarios : null;
+      const result = await startAudit(targetUrl, scenarios);
+      onAuditStarted(result.audit_id, targetUrl);
+    } catch (err) {
+      setError(err.message || 'Failed to start audit');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div className="max-w-2xl mx-auto mt-20">
-      <div className="text-center mb-10">
-        <h2 className="text-4xl font-bold mb-3">Detect Dark Patterns</h2>
-        <p className="text-gray-400">Enter a URL and our AI agent will audit it for manipulative design patterns</p>
+    <div className="audit-form">
+      <div className="form-header">
+        <h2>Scan a Website</h2>
+        <p>Enter a URL to detect dark patterns in its UI</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="flex gap-3">
+      <form onSubmit={handleSubmit}>
+        <div className="url-input-group">
           <input
-            type="url"
+            type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://example.com"
-            className="flex-1 bg-dark-800 border border-dark-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-shield-500"
-            required
-          />
-          <button
-            type="submit"
             disabled={loading}
-            className="bg-shield-500 hover:bg-shield-400 px-6 py-3 rounded-lg font-medium transition disabled:opacity-50"
-          >
-            {loading ? 'Starting...' : 'Audit'}
+            className="url-input"
+          />
+          <button type="submit" disabled={loading} className="scan-button">
+            {loading ? (
+              <span className="loading-spinner">Launching Agent...</span>
+            ) : (
+              'Scan'
+            )}
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          {SCENARIOS.map(s => (
-            <label
-              key={s.id}
-              className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition ${
-                selected.includes(s.id) ? 'border-shield-500 bg-dark-800' : 'border-dark-700 bg-dark-900'
-              }`}
+        {error && <div className="error-message">{error}</div>}
+
+        <div className="preset-urls">
+          {PRESET_URLS.map((preset) => (
+            <button
+              key={preset.url}
+              type="button"
+              onClick={() => setUrl(preset.url)}
+              className="preset-button"
+              disabled={loading}
             >
-              <input
-                type="checkbox"
-                checked={selected.includes(s.id)}
-                onChange={() => setSelected(prev =>
-                  prev.includes(s.id) ? prev.filter(x => x !== s.id) : [...prev, s.id]
-                )}
-                className="sr-only"
-              />
-              <span>{s.icon}</span>
-              <span className="text-sm">{s.label}</span>
-            </label>
+              {preset.label}
+            </button>
           ))}
+        </div>
+
+        <div className="scenario-selector">
+          <p className="scenario-label">Scenarios (leave empty for all):</p>
+          <div className="scenario-chips">
+            {Object.entries(SCENARIO_LABELS).map(([key, { label, icon }]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggleScenario(key)}
+                className={`scenario-chip ${selectedScenarios.includes(key) ? 'active' : ''}`}
+                disabled={loading}
+              >
+                <span>{icon}</span> {label}
+              </button>
+            ))}
+          </div>
         </div>
       </form>
     </div>
-  )
+  );
 }

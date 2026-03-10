@@ -28,6 +28,18 @@ export async function getAuditResult(auditId) {
   return res.json();
 }
 
+export async function getAudit(auditId) {
+  const res = await fetch(`${API_BASE}/api/v1/audit/${auditId}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function getAuditPatterns(auditId) {
+  const res = await fetch(`${API_BASE}/api/v1/audit/${auditId}/patterns`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export async function listAudits() {
   const res = await fetch(`${API_BASE}/api/v1/audits`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

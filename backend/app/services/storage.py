@@ -22,12 +22,14 @@ class LocalStorage:
         self.base_dir = Path(base_dir)
         self.screenshots_dir = self.base_dir / "screenshots"
         self.results_dir = self.base_dir / "results"
+        self.reports_dir = self.base_dir / "reports"
         self._ensure_dirs()
 
     def _ensure_dirs(self):
         """Create storage directories if they don't exist."""
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
         self.results_dir.mkdir(parents=True, exist_ok=True)
+        self.reports_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Storage initialized at {self.base_dir}")
 
     def save_screenshot(self, audit_id: str, scenario: str, step: str, data: bytes) -> str:
@@ -51,6 +53,24 @@ class LocalStorage:
         if not filepath.exists():
             return None
         return json.loads(filepath.read_text())
+
+    def load_audit(self, audit_id: str) -> Optional[dict]:
+        """Load audit data by ID (alias for load_result)."""
+        return self.load_result(audit_id)
+
+    def get_report_path(self, audit_id: str) -> Optional[str]:
+        """Get cached report PDF path if it exists."""
+        filepath = self.reports_dir / f"{audit_id}.pdf"
+        if filepath.exists():
+            return str(filepath)
+        return None
+
+    def save_report(self, audit_id: str, pdf_bytes: bytes) -> str:
+        """Save a generated PDF report."""
+        filepath = self.reports_dir / f"{audit_id}.pdf"
+        filepath.write_bytes(pdf_bytes)
+        logger.info(f"Report saved: {filepath}")
+        return str(filepath)
 
     def list_results(self) -> list[str]:
         """List all audit result IDs."""

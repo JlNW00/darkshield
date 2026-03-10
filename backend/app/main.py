@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .routes.audit import router as audit_router
+from .routes.report import router as report_router
 
 
 # Configure logging
@@ -51,8 +52,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount audit routes
+# Mount routes
 app.include_router(audit_router)
+app.include_router(report_router)
 
 # Serve screenshots as static files
 try:

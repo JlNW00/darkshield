@@ -1,25 +1,25 @@
-import { SEVERITY_COLORS, SEVERIYY_LABELS, SCENARIO_LABELS } from '../hooks/useApi';
+import { SEVERITY_COLORS, SEVERITY_LABELS, SCENARIO_LABELS } from '../hooks/useApi';
 
 export default function PatternDetail({ pattern, classification }) {
   // classification is a plain dict returned directly from the backend classify() call.
   // Field names match what classifier.py returns: category, confidence, explanation,
-  // oecd_reference (string), remediation (string).
+  // oecdreference (string), remediation (string).
   const sev = classification?.severity || pattern?.severity || 'medium';
   const category = classification?.category || pattern?.category || 'unknown';
   const confidence = classification?.confidence || pattern?.confidence || 0;
 
   // Backend taxonomy keys from classifier.py TAXONOMY dict
   const categoryLabels = {
-    asymmetric_choice:      'Asymmetric Choice',
-    confirmshaming:         'Confirmshaming',
-    forced_consent:         'Forced Consent',
-    hidden_costs:           'Hidden Costs',
+    asymmetric_choice:     'Asymmetric Choice',
+    confirmshaming:        'Confirmshaming',
+    forced_consent:        'Forced Consent',
+    hidden_costs:          'Hidden Costs',
     interface_interference:'Interface Interference',
-    misdirection:           'Misdirection',
-    nagging:                'Nagging',
-    obstruction:            'Obstruction',
-    sneaking:               'Sneaking',
-    urgency:                'Urgency',
+    misdirection:          'Misdirection',
+    nagging:               'Nagging',
+    obstruction:           'Obstruction',
+    sneaking:              'Sneaking',
+    urgency:               'Urgency',
   };
 
   const scenarioInfo = SCENARIO_LABELS[pattern?.scenario] || {};
@@ -55,27 +55,40 @@ export default function PatternDetail({ pattern, classification }) {
               <div
                 className="confidence-fill"
                 style={{
-                  width: `${confidence * 100}% ,
-                  backgroundColor: 'hsl(121, 60%, 65%)',
+                  width: `${confidence * 100}%`,
+                  backgroundColor:
+                    confidence > 0.8
+                      ? '#22c55e'
+                      : confidence > 0.6
+                      ? '#f59e0b'
+                      : '#ef4444',
                 }}
-               </div>
+              />
             </div>
-            </div>
-        </div>
+          </div>
         )}
 
-        <div className="pattern-tech">
-          <span className="tech-label">OECD Reference: </span>
-          <span className="tech-value">{classification?.oecd_reference || 'N/A'}</span>
-        </div>
+        {classification?.explanation && (
+          <div className="pattern-reasoning">
+            <strong>AI Reasoning:</strong>
+            <p>{classification.explanation}</p>
+          </div>
+        )}
 
-        <div className="pattern-remediation">
-          <h3 className="remediation-title">Remediation</h3>
-          <p className="remediation-text">
-            {classification?.remediation || pattern?.remediation || 'No remediation suggested'}
-          </p>
-        </div>
-    </div>
+        {classification?.oecdreference && (
+          <div className="oecd-reference">
+            <strong>Regulatory Reference:</strong>
+            <p>{classification.oecdreference}</p>
+          </div>
+        )}
+
+        {classification?.remediation && (
+          <div className="pattern-remediation">
+            <strong>Remediation:</strong>
+            <p>{classification.remediation}</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

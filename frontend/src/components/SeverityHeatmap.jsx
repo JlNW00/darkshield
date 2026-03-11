@@ -42,7 +42,7 @@ export default function SeverityHeatmap({ scenarios }) {
         {scenarios.map((s) => (
           <div key={s.scenario_name} className="heatmap-row">
             <div className="heatmap-cell heatmap-label">
-              <span>{SCENARIO_LABELS[s.scenario_name]?.icon || '>'}</span>
+              <span role="img" aria-hidden="true">{SCENARIO_LABELS[s.scenario_name]?.icon || '>'}</span>
               {SCENARIO_LABELS[s.scenario_name]?.label || s.scenario_name}
             </div>
             {severityOrder.map((sev) => {

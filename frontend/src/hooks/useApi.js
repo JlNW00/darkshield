@@ -34,12 +34,6 @@ export async function getAuditPatterns(auditId) {
   return res.json();
 }
 
-export async function getAuditResult(auditId) {
-  const res = await fetch(`${API_BASE}/api/v1/audit/${auditId}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
 export async function listAudits() {
   const res = await fetch(`${API_BASE}/api/v1/audits`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -63,7 +57,8 @@ export function connectAuditWebSocket(auditId, onMessage, onError) {
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
-      if (data.type !== 'heartbeat') {
+      // Backend sends 'keepalive' (not 'heartbeat') — filter it out
+      if (data.type !== 'keepalive') {
         onMessage(data);
       }
     } catch (e) {
@@ -101,9 +96,11 @@ export const SEVERITY_LABELS = {
   low: 'Low',
 };
 
+// Each entry must be { label, icon } — consumed by AuditForm, AuditStatus,
+// PatternDetail, and SeverityHeatmap via destructuring / .label / .icon access.
 export const SCENARIO_LABELS = {
-  cookie_consent: 'Cookie Consent',
-  subscription_cancel: 'Subscription Cancel',
-  checkout_flow: 'Checkout Flow',
-  account_deletion: 'Account Deletion',
+  cookie_consent:      { label: 'Cookie Consent',      icon: '🍪' },
+  subscription_cancel: { label: 'Subscription Cancel',  icon: '📋' },
+  checkout_flow:       { label: 'Checkout Flow',         icon: '🛒' },
+  account_deletion:    { label: 'Account Deletion',      icon: '🗑️' },
 };

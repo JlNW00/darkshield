@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 
 from ..agents.browser_agent import DarkPatternAgent, AuditResult
 from ..agents.classifier import DarkPatternClassifier
@@ -85,214 +85,189 @@ async def run_audit_pipeline(audit_id: str, url: str, scenarios: Optional[list[s
         })
 
         # Phase 1: Browser Agent
-        agent = DarkPatternAgent(nova_act_api_key=settings.nova_act_api_key)
+        # on_event callback from browser_agent is sync-called inside asyncio.to_thread,
+        # so we wrap it with asyncio.run_coroutine_threadsafe to safely schedule the
+        # coroutine back onto the main event loop.
+        loop = asyncio.get_event_loop()
 
-        async def on_agent_event(event: dict):
-            await broadcast_event(audit_id, event)
+        def on_event_sync(event: dict):
+            asyncio.run_coroutine_threadsafe(broadcast_event(audit_id, event), loop)
 
-        audit_result = await agent.run_audit(
+        agent = DarkPatternAgent(api_key=settings.nova_act_api_key)
+
+        results = await agent.run_all_scenarios(
             url=url,
-            audit_id=audit_id,
             scenarios=scenarios,
-            on_event=on_agent_event,
+            on_event=on_event_sync,
         )
 
-        active_audits[audit_id] = audit_result
-
-        # Save screenshots from findings
-        for scenario in audit_result.scenarios:
-            for pattern in scenario.patterns_found:
-                if pattern.screenshot_b64:
-                    path = storage.save_screenshot(
-                        audit_id=audit_id,
-                        name=f"{pattern.scenario}_{pattern.pattern_id}",
-                        image_b64=pattern.screenshot_b64,
-                    )
-                    pattern.screenshot_path = path
-                    pattern.screenshot_b64 = None  # Free memory
+        # Collect all Finding instances from all scenario results
+        all_raw_findings = []
+        for scenario_result in results:
+            all_raw_findings.extend(scenario_result.findings)
 
         await broadcast_event(audit_id, {
             "type": "classification_started",
             "audit_id": audit_id,
-            "message": f"Classifying {audit_result.total_patterns} detected patterns with AI...",
+            "message": f"Classifying {len(all_raw_findings)} findings with AI...",
         })
 
-        # Phase 2: Classification
-        all_patterns = [
-            p for s in audit_result.scenarios for p in s.patterns_found
-        ]
+        # Phase 2: Classify findings (classify_batch accepts Finding instances)
+        classifier = DarkPatternClassifier(
+            aws_access_key_id=settings.aws_access_key_id,
+            aws_secret_access_key=settings.aws_secret_access_key,
+            region_name=settings.aws_region,
+        )
 
-        classifications = []
-        if all_patterns:
-            try:
-                classifier = DarkPatternClassifier(
-                    aws_region=settings.aws_region,
-                    aws_access_key_id=settings.aws_access_key_id,
-                    aws_secret_access_key=settings.aws_secret_access_key,
-                )
+        classified_findings = await classifier.classify_batch(all_raw_findings)
+        # classified_findings is a list of plain dicts
 
-                pattern_dicts = [
-                    {
-                        "pattern_id": p.pattern_id,
-                        "category": p.category.value if hasattr(p.category, "value") else p.category,
-                        "description": p.description,
-                        "evidence": p.evidence,
-                        "screenshot_b64": p.screenshot_b64,
-                    }
-                    for p in all_patterns
-                ]
+        await broadcast_event(audit_id, {
+            "type": "classification_completed",
+            "audit_id": audit_id,
+            "classified": len(classified_findings),
+        })
 
-                classifications = await classifier.classify_batch(pattern_dicts)
+        # Phase 3: Compute risk score (works on list of dicts)
+        risk_score = _compute_risk_score(classified_findings)
 
-                await broadcast_event(audit_id, {
-                    "type": "classification_completed",
-                    "audit_id": audit_id,
-                    "classified": len(classifications),
-                })
+        # Phase 4: Save to storage
+        audit_data = {
+            "audit_id": audit_id,
+            "target_url": url,
+            "status": "completed",
+            "findings": classified_findings,
+            "risk_score": risk_score,
+            "total_patterns": len(classified_findings),
+            "started_at": active_audits[audit_id].started_at if audit_id in active_audits else "",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "scenario_results": [
+                {
+                    "scenario_name": r.scenario,
+                    "status": r.status,
+                    "duration_seconds": r.duration_seconds,
+                    "patterns_found": [
+                        {
+                            "pattern_type": f.pattern_type,
+                            "severity": f.severity,
+                            "description": f.description,
+                        }
+                        for f in r.findings
+                    ],
+                }
+                for r in results
+            ],
+        }
 
-            except Exception as exc:
-                logger.exception("Classification pipeline failed")
-                await broadcast_event(audit_id, {
-                    "type": "classification_error",
-                    "audit_id": audit_id,
-                    "error": str(exc),
-                    "message": "Classification failed - using browser agent's raw findings",
-                })
+        storage.save_audit(audit_id, audit_data)
 
-        # Phase 3: Save results
-        result_data = audit_result.to_dict()
-        result_data["classifications"] = [c.to_dict() for c in classifications]
-
-        storage.save_audit(audit_id, result_data)
+        # Update in-memory state
+        if audit_id in active_audits:
+            active_audits[audit_id].status = "completed"
+            active_audits[audit_id].findings = classified_findings
+            active_audits[audit_id].risk_score = risk_score
+            active_audits[audit_id].completed_at = audit_data["completed_at"]
 
         await broadcast_event(audit_id, {
             "type": "pipeline_completed",
             "audit_id": audit_id,
-            "total_patterns": audit_result.total_patterns,
-            "risk_score": audit_result.risk_score,
-            "message": f"Audit complete. Found {audit_result.total_patterns} dark patterns. Risk score: {audit_result.risk_score}/10",
+            "total_patterns": len(classified_findings),
+            "risk_score": risk_score,
+            "message": f"Audit complete. Found {len(classified_findings)} dark patterns.",
         })
 
-    except Exception as exc:
-        logger.exception("Audit pipeline failed for %s", url)
+    except Exception as e:
+        logger.exception("Audit pipeline failed for %s", audit_id)
+        if audit_id in active_audits:
+            active_audits[audit_id].status = "failed"
         await broadcast_event(audit_id, {
             "type": "pipeline_error",
             "audit_id": audit_id,
-            "error": str(exc),
-            "message": f"Audit failed: {exc}",
+            "error": str(e),
+            "message": f"Audit failed: {e}",
         })
 
-        # Save error state
-        storage.save_audit(audit_id, {
-            "audit_id": audit_id,
-            "target_url": url,
-            "status": "failed",
-            "error": str(exc),
-            "started_at": datetime.now(timezone.utc).isoformat(),
-        })
+def _compute_risk_score(findings: list) -> float:
+    """Compute 0-100 risk score from classified findings (list of dicts)."""
+    if not findings:
+        return 0.0
+    severity_weights = {"critical": 10, "high": 7, "medium": 4, "low": 1}
+    total = sum(severity_weights.get(f.get("severity", "low"), 1) for f in findings)
+    max_possible = len(findings) * 10
+    return round((total / max_possible) * 100, 1) if max_possible > 0 else 0.0
 
 # ---------------------------------------------------------------------------
-# REST Endpoints
+# HTTP Endpoints
 # ---------------------------------------------------------------------------
 @router.post("/audit", response_model=AuditResponse)
 async def start_audit(request: AuditRequest, background_tasks: BackgroundTasks):
     """Start a new dark pattern audit."""
-    # Validate
-    config_warnings = settings.validate()
-    if any("NOVA_ACT_API_KEY" in w for w in config_warnings):
+    audit_id = str(uuid.uuid4())
+
+    # Validate config
+    missing = settings.validate()
+    if missing:
         raise HTTPException(
             status_code=503,
-            detail="NOVA_ACT_API_KEY not configured. Set it in your .env file.",
+            detail=f"Missing required configuration: {', '.join(missing)}"
         )
 
-    # Check concurrent audit limit
-    running = sum(1 for a in active_audits.values() if a.status == "running")
-    if running >= settings.max_concurrent_audits:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Maximum {settings.max_concurrent_audits} concurrent audits. Try again later.",
-        )
+    # Track audit
+    active_audits[audit_id] = AuditResult(
+        audit_id=audit_id,
+        target_url=request.url,
+        status="running",
+    )
 
-    audit_id = f"audit-{uuid.uuid4().hex[:12]}"
-
-    # Launch pipeline in background
-    background_tasks.add_task(run_audit_pipeline, audit_id, str(request.url), request.scenarios)
+    background_tasks.add_task(run_audit_pipeline, audit_id, request.url, request.scenarios)
 
     return AuditResponse(
         audit_id=audit_id,
         status="started",
-        message=f"Audit started for {request.url}. Connect to WebSocket /ws/audit/{audit_id} for real-time updates.",
+        message=f"Audit started for {request.url}",
     )
 
-@router.get("/audit/{audit_id}")
-async def get_audit(audit_id: str):
-    """Get audit results."""
-    # Check in-memory first (for running audits)
+@router.get("/audit/{audit_id}", response_model=AuditStatusResponse)
+async def get_audit_status(audit_id: str):
+    """Get current status of an audit."""
+    # Check in-memory first
     if audit_id in active_audits:
-        return active_audits[audit_id].to_dict()
+        result = active_audits[audit_id]
+        return AuditStatusResponse(
+            audit_id=audit_id,
+            target_url=result.target_url,
+            status=result.status,
+            total_patterns=len(result.findings),
+            risk_score=result.risk_score,
+            started_at=result.started_at,
+            completed_at=result.completed_at,
+        )
 
-    # Check storage
-    result = storage.load_audit(audit_id)
-    if result is None:
+    # Fall back to storage
+    audit_data = storage.load_audit(audit_id)
+    if not audit_data:
         raise HTTPException(status_code=404, detail=f"Audit {audit_id} not found")
 
-    return result
-
-@router.get("/audit/{audit_id}/patterns")
-async def get_audit_patterns(audit_id: str):
-    """Get just the patterns from an audit."""
-    result = storage.load_audit(audit_id)
-    if result is None:
-        raise HTTPException(status_code=404, detail=f"Audit {audit_id} not found")
-
-    patterns = []
-    for scenario in result.get("scenarios", []):
-        for pattern in scenario.get("patterns_found", []):
-            pattern["scenario_name"] = scenario.get("scenario_name", "")
-            patterns.append(pattern)
-
-    return {
-        "audit_id": audit_id,
-        "total": len(patterns),
-        "patterns": patterns,
-        "classifications": result.get("classifications", []),
-    }
+    return AuditStatusResponse(
+        audit_id=audit_id,
+        target_url=audit_data.get("target_url", ""),
+        status=audit_data.get("status", "unknown"),
+        total_patterns=audit_data.get("total_patterns", 0),
+        risk_score=audit_data.get("risk_score", 0.0),
+        started_at=audit_data.get("started_at", ""),
+        completed_at=audit_data.get("completed_at"),
+    )
 
 @router.get("/audits")
 async def list_audits():
-    """List all completed audits."""
-    return {"audits": storage.list_audits()}
-
-@router.delete("/audit/{audit_id}")
-async def delete_audit(audit_id: str):
-    """Delete an audit and its data."""
-    if storage.delete_audit(audit_id):
-        active_audits.pop(audit_id, None)
-        return {"message": f"Audit {audit_id} deleted"}
-    raise HTTPException(status_code=404, detail=f"Audit {audit_id} not found")
-
-@router.get("/audit/{audit_id}/screenshots")
-async def list_audit_screenshots(audit_id: str):
-    """List screenshots for an audit."""
-    screenshots = storage.list_screenshots(audit_id)
-    return {"audit_id": audit_id, "screenshots": screenshots}
-
-@router.get("/health")
-async def health_check():
-    """Health check with config validation."""
-    warnings = settings.validate()
-    return {
-        "status": "healthy",
-        "warnings": warnings,
-        "nova_act_configured": bool(settings.nova_act_api_key),
-        "aws_configured": bool(settings.aws_access_key_id and settings.aws_secret_access_key),
-    }
+    """List all audits."""
+    return storage.list_audits()
 
 # ---------------------------------------------------------------------------
-# WebSocket for real-time audit streaming
+# WebSocket endpoint
 # ---------------------------------------------------------------------------
 @router.websocket("/ws/audit/{audit_id}")
-async def websocket_audit(websocket: WebSocket, audit_id: str):
+async def audit_websocket(websocket: WebSocket, audit_id: str):
     """WebSocket endpoint for real-time audit progress."""
     await websocket.accept()
 
@@ -300,39 +275,32 @@ async def websocket_audit(websocket: WebSocket, audit_id: str):
         audit_connections[audit_id] = []
     audit_connections[audit_id].append(websocket)
 
-    logger.info("WebSocket connected for audit %s", audit_id)
-
     try:
         # Send current state if audit exists
-        existing = storage.load_audit(audit_id)
-        if existing:
+        if audit_id in active_audits:
+            result = active_audits[audit_id]
             await websocket.send_json({
-                "type": "audit_state",
+                "type": "connected",
                 "audit_id": audit_id,
-                "data": existing,
+                "status": result.status,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             })
 
         # Keep connection alive
         while True:
             try:
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
-                # Handle ping/pong
                 if data == "ping":
-                    await websocket.send_text("pong")
+                    await websocket.send_json({"type": "pong"})
             except asyncio.TimeoutError:
-                # Send keepalive
-                try:
-                    await websocket.send_json({"type": "keepalive"})
-                except Exception:
-                    break
+                await websocket.send_json({"type": "keepalive"})
+            except WebSocketDisconnect:
+                break
 
     except WebSocketDisconnect:
-        logger.info("WebSocket disconnected for audit %s", audit_id)
-    except Exception:
-        logger.exception("WebSocket error for audit %s", audit_id)
+        pass
     finally:
         if audit_id in audit_connections:
-            try:
-                audit_connections[audit_id].remove(websocket)
-            except ValueError:
-                pass
+            audit_connections[audit_id] = [
+                ws for ws in audit_connections[audit_id] if ws != websocket
+            ]

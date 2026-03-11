@@ -30,9 +30,10 @@ SEVERITY_COLORS = {
     "critical": "#dc2626",
 }
 
+
 def generate_report_html(audit_data: dict) -> str:
     """Generate styled HTML report from audit data."""
-
+    
     target_url = audit_data.get("target_url", "Unknown")
     risk_score = audit_data.get("risk_score", 0)
     total_patterns = audit_data.get("total_patterns", 0)
@@ -79,15 +80,27 @@ def generate_report_html(audit_data: dict) -> str:
         sev = c.get("severity", p.get("severity", "medium"))
         cat = c.get("category", p.get("category", "unknown"))
         desc = c.get("description", p.get("description", ""))
-        evidence = c.get("evidence_summary", p.get("evidence", ""))
+        evidence = p.get("evidence", "")
         confidence = c.get("confidence", p.get("confidence", 0))
-        reasoning = c.get("explanation", "")
+        explanation = c.get("explanation", "")
         oecd = c.get("oecdreference", "")
         remediation = c.get("remediation", "")
 
-        oecd_html = f"<p>{oecd}</p>" if oecd else ""
+        oecd_html = ""
+        if oecd:
+            oecd_html = f"""
+            <div class="oecd-ref">
+                <strong>Regulatory Reference</strong><br>
+                {oecd}
+            </div>"""
 
-        remediation_html = f"<p>{remediation}</p>" if remediation else ""
+        remediation_html = ""
+        if remediation:
+            remediation_html = f"""
+            <div class="remediation">
+                <strong>Remediation</strong>
+                <p>{remediation}</p>
+            </div>"""
 
         pattern_rows += f"""
         <div class="pattern-card">
@@ -102,7 +115,7 @@ def generate_report_html(audit_data: dict) -> str:
             <div class="evidence-box">
                 <strong>Evidence:</strong> {evidence}
             </div>
-            {f'<div class="reasoning"><strong>AI Reasoning:</strong> {reasoning}</div>' if reasoning else ''}
+            {f'<div class="reasoning"><strong>AI Reasoning:</strong> {explanation}</div>' if explanation else ''}
             {oecd_html}
             {remediation_html}
         </div>
@@ -145,13 +158,13 @@ def generate_report_html(audit_data: dict) -> str:
     @page {{ margin: 1.5cm; size: A4; }}
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{ font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; color: #1e1b4b; font-size: 11px; line-height: 1.5; }}
-
+    
     .cover {{ text-align: center; padding: 60px 0 40px; border-bottom: 3px solid #6366f1; margin-bottom: 30px; }}
     .cover h1 {{ font-size: 32px; color: #312e81; margin-bottom: 8px; }}
     .cover .subtitle {{ font-size: 14px; color: #6366f1; }}
     .cover .url {{ font-size: 16px; margin-top: 20px; color: #4338ca; word-break: break-all; }}
     .cover .date {{ font-size: 11px; color: #64748b; margin-top: 8px; }}
-
+    
     .risk-section {{ display: flex; gap: 20px; margin-bottom: 30px; }}
     .risk-circle {{ width: 100px; height: 100px; border-radius: 50%; border: 6px solid {risk_color}; display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; }}
     .risk-num {{ font-size: 28px; font-weight: 800; color: {risk_color}; }}
@@ -159,20 +172,20 @@ def generate_report_html(audit_data: dict) -> str:
     .risk-details {{ flex: 1; }}
     .risk-details h2 {{ color: {risk_color}; font-size: 18px; margin-bottom: 4px; }}
     .risk-details p {{ color: #475569; }}
-
+    
     .sev-summary {{ display: flex; gap: 12px; margin: 16px 0 30px; }}
     .sev-pill {{ padding: 6px 14px; border-radius: 20px; color: white; font-weight: 600; font-size: 12px; }}
-
+    
     h3 {{ font-size: 16px; color: #312e81; margin: 24px 0 12px; border-bottom: 2px solid #e0e7ff; padding-bottom: 4px; }}
-
+    
     table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; }}
     th {{ background: #eef2ff; color: #312e81; text-align: left; padding: 8px 10px; font-size: 11px; }}
     td {{ padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 11px; }}
     tr:nth-child(even) {{ background: #f8fafc; }}
-
+    
     .bar-track {{ width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; }}
     .bar-fill {{ height: 100%; border-radius: 4px; }}
-
+    
     .pattern-card {{ border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 14px; page-break-inside: avoid; }}
     .pattern-header-row {{ display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }}
     .pattern-num {{ font-weight: 700; color: #6366f1; }}
@@ -187,10 +200,10 @@ def generate_report_html(audit_data: dict) -> str:
     .remediation {{ margin-top: 8px; }}
     .remediation ul {{ padding-left: 20px; color: #16a34a; }}
     .remediation li {{ margin-bottom: 3px; }}
-
+    
     .compliance {{ text-align: center; padding: 20px; background: #f0fdf4; border-radius: 8px; margin: 20px 0; }}
     .compliance-score {{ font-size: 36px; font-weight: 800; color: {'#16a34a' if compliance_score >= 70 else '#f59e0b' if compliance_score >= 40 else '#dc2626'}; }}
-
+    
     .footer {{ text-align: center; color: #94a3b8; font-size: 9px; margin-top: 30px; padding-top: 10px; border-top: 1px solid #e2e8f0; }}
 </style>
 </head>
@@ -253,6 +266,7 @@ def generate_report_html(audit_data: dict) -> str:
 
     return html
 
+
 def generate_pdf(audit_data: dict) -> bytes:
     """Generate a PDF report from audit data using WeasyPrint."""
     try:
@@ -267,6 +281,7 @@ def generate_pdf(audit_data: dict) -> bytes:
     except Exception:
         logger.exception("PDF generation failed")
         raise
+
 
 def generate_html_file(audit_data: dict, output_path: str) -> str:
     """Generate an HTML report file (fallback if WeasyPrint unavailable)."""

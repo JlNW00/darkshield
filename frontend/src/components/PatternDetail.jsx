@@ -1,1 +1,81 @@
-aW1wb3J0IHsgU0VWRVJJVFlfQ09MT1JTLCBTRVZFUklUWV9MQUJFTFMsIFNDRU5BUklPX0xBQkVMUyB9IGZyb20gJy4uL2hvb2tzL3VzZUFwaSc7CgpleHBvcnQgZGVmYXVsdCBmdW5jdGlvbiBQYXR0ZXJuRGV0YWlsKHsgcGF0dGVybiwgY2xhc3NpZmljYXRpb24gfSkgewogIC8vIGNsYXNzaWZpY2F0aW9uIGlzIGEgcGxhaW4gZGljdCByZXR1cm5lZCBkaXJlY3RseSBmcm9tIHRoZSBiYWNrZW5kIGNsYXNzaWZ5KCkgY2FsbC4KICAvLyBGaWVsZCBuYW1lcyBtYXRjaCB3aGF0IGNsYXNzaWZpZXIucHkgcmV0dXJuczogY2F0ZWdvcnksIGNvbmZpZGVuY2UsIGV4cGxhbmF0aW9uLAogIC8vIG9lY2RfcmVmZXJlbmNlIChzdHJpbmcpLCByZW1lZGlhdGlvbiAoc3RyaW5nKS4KICBjb25zdCBzZXYgPSBjbGFzc2lmaWNhdGlvbj8uc2V2ZXJpdHkgfHwgcGF0dGVybj8uc2V2ZXJpdHkgfHwgJ21lZGl1bSc7CiAgY29uc3QgY2F0ZWdvcnkgPSBjbGFzc2lmaWNhdGlvbj8uY2F0ZWdvcnkgfHwgcGF0dGVybj8uY2F0ZWdvcnkgfHwgJ3Vua25vd24nOwogIGNvbnN0IGNvbmZpZGVuY2UgPSBjbGFzc2lmaWNhdGlvbj8uY29uZmlkZW5jZSB8fCBwYXR0ZXJuPy5jb25maWRlbmNlIHx8IDA7CgogIC8vIEJhY2tlbmQgdGF4b25vbXkga2V5cyBmcm9tIGNsYXNzaWZpZXIucHkgVEFYT05PTVkgZGljdAogIGNvbnN0IGNhdGVnb3J5TGFiZWxzID0gewogICAgYXN5bW1ldHJpY19jaG9pY2U6ICAgICAnQXN5bW1ldHJpYyBDaG9pY2UnLAogICAgY29uZmlybXNoYW1pbmc6ICAgICAgICAnQ29uZmlybXNoYW1pbmcnLAogICAgZm9yY2VkX2NvbnNlbnQ6ICAgICAgICAnRm9yY2VkIENvbnNlbnQnLAogICAgaGlkZGVuX2Nvc3RzOiAgICAgICAgICAnSGlkZGVuIENvc3RzJywKICAgIGludGVyZmFjZV9pbnRlcmZlcmVuY2U6J0ludGVyZmFjZSBJbnRlcmZlcmVuY2UnLAogICAgbWlzZGlyZWN0aW9uOiAgICAgICAgICAnTWlzZGlyZWN0aW9uJywKICAgIG5hZ2dpbmc6ICAgICAgICAgICAgICAgJ05hZ2dpbmcnLAogICAgb2JzdHJ1Y3Rpb246ICAgICAgICAgICAnT2JzdHJ1Y3Rpb24nLAogICAgc25lYWtpbmc6ICAgICAgICAgICAgICAnU25lYWtpbmcnLAogICAgdXJnZW5jeTogICAgICAgICAgICAgICAnVXJnZW5jeScsCiAgfTsKCiAgY29uc3Qgc2NlbmFyaW9JbmZvID0gU0NFTkFSSU9fTEFCRUxTW3BhdHRlcm4/LnNjZW5hcmlvXSB8fCB7fTsKCiAgcmV0dXJuICgKICAgIDxkaXYgY2xhc3NOYW1lPSJwYXR0ZXJuLWRldGFpbCI+CiAgICAgIDxkaXYgY2xhc3NOYW1lPSJwYXR0ZXJuLWhlYWRlciI+CiAgICAgICAgPGRpdgogICAgICAgICAgY2xhc3NOYW1lPSJzZXZlcml0eS1iYWRnZSIKICAgICAgICAgIHN0eWxlPXt7IGJhY2tncm91bmRDb2xvcjogU0VWRVJJVFlfQ09MT1JTW3Nldl0gfX0KICAgICAgICA+CiAgICAgICAgICB7U0VWRVJJVFlfTEFCRUxTW3Nldl19CiAgICAgICAgPC9kaXY+CiAgICAgICAgPHNwYW4gY2xhc3NOYW1lPSJwYXR0ZXJuLWNhdGVnb3J5Ij4KICAgICAgICAgIHtjYXRlZ29yeUxhYmVsc1tjYXRlZ29yeV0gfHwgY2F0ZWdvcnl9CiAgICAgICAgPC9zcGFuPgogICAgICAgIDxzcGFuIGNsYXNzTmFtZT0icGF0dGVybi1zY2VuYXJpbyI+CiAgICAgICAgICB7c2NlbmFyaW9JbmZvLmljb259IHtzY2VuYXJpb0luZm8ubGFiZWwgfHwgcGF0dGVybj8uc2NlbmFyaW99CiAgICAgICAgPC9zcGFuPgogICAgICA8L2Rpdj4KCiAgICAgIDxkaXYgY2xhc3NOYW1lPSJwYXR0ZXJuLWJvZHkiPgogICAgICAgIDxwIGNsYXNzTmFtZT0icGF0dGVybi1kZXNjcmlwdGlvbiI+CiAgICAgICAgICB7Y2xhc3NpZmljYXRpb24/LmRlc2NyaXB0aW9uIHx8IHBhdHRlcm4/LmRlc2NyaXB0aW9ufQogICAgICAgIDwvcD4KCiAgICAgICAge2NvbmZpZGVuY2UgPiAwICYmICgKICAgICAgICAgIDxkaXYgY2xhc3NOYW1lPSJjb25maWRlbmNlLWJhciI+CiAgICAgICAgICAgIDxzcGFuIGNsYXNzTmFtZT0iY29uZmlkZW5jZS1sYWJlbCI+CiAgICAgICAgICAgICAgQUkgQ29uZmlkZW5jZToge01hdGgucm91bmQoY29uZmlkZW5jZSAqIDEwMCl9JQogICAgICAgICAgICA8L3NwYW4+CiAgICAgICAgICAgIDxkaXYgY2xhc3NOYW1lPSJjb25maWRlbmNlLXRyYWNrIj4KICAgICAgICAgICAgICA8ZGl2CiAgICAgICAgICAgICAgICBjbGFzc05hbWU9ImNvbmZpZGVuY2UtZmlsbCIKICAgICAgICAgICAgICAgIHN0eWxlPXt7CiAgICAgICAgICAgICAgICAgIHdpZHRoOiBgJHtjb25maWRlbmNlICogMTAwfSVgLAogICAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kQ29sb3I6CiAgICAgICAgICAgICAgICAgICAgY29uZmlkZW5jZSA+IDAuOAogICAgICAgICAgICAgICAgICAgICAgPyAnIzIyYzU1ZScKICAgICAgICAgICAgICAgICAgICAgIDogY29uZmlkZW5jZSA+IDAuNgogICAgICAgICAgICAgICAgICAgICAgPyAnI2Y1OWUwYicKICAgICAgICAgICAgICAgICAgICAgIDogJyNlZjQ0NDQnLAogICAgICAgICAgICAgICAgfX0KICAgICAgICAgICAgICAvPgogICAgICAgICAgICA8L2Rpdj4KICAgICAgICAgIDwvZGl2PgogICAgICAgICl9CgogICAgICAgIHtjbGFzc2lmaWNhdGlvbj8uZXhwbGFuYXRpb24gJiYgKAogICAgICAgICAgPGRpdiBjbGFzc05hbWU9InBhdHRlcm4tcmVhc29uaW5nIj4KICAgICAgICAgICAgPHN0cm9uZz5BSSBSZWFzb25pbmc6PC9zdHJvbmc+CiAgICAgICAgICAgIDxwPntjbGFzc2lmaWNhdGlvbi5leHBsYW5hdGlvbn08L3A+CiAgICAgICAgICA8L2Rpdj4KICAgICAgICApfQoKICAgICAgICB7Y2xhc3NpZmljYXRpb24/Lm9lY2RyZWZlcmVuY2UgJiYgKAogICAgICAgICAgPGRpdiBjbGFzc05hbWU9Im9lY2QtcmVmZXJlbmNlIj4KICAgICAgICAgICAgPHN0cm9uZz5SZWd1bGF0b3J5IFJlZmVyZW5jZTo8L3N0cm9uZz4KICAgICAgICAgICAgPHA+e2NsYXNzaWZpY2F0aW9uLm9lY2RyZWZlcmVuY2V9PC9wPgogICAgICAgICAgPC9kaXY+CiAgICAgICAgKX0KCiAgICAgICAge2NsYXNzaWZpY2F0aW9uPy5yZW1lZGlhdGlvbiAmJiAoCiAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0icGF0dGVybi1yZW1lZGlhdGlvbiI+CiAgICAgICAgICAgIDxzdHJvbmc+U3VnZ2VzdGVkIEZpeDo8L3N0cm9uZz4KICAgICAgICAgICAgPHA+e2NsYXNzaWZpY2F0aW9uLnJlbWVkaWF0aW9ufTwvcD4KICAgICAgICAgIDwvZGl2PgogICAgICAgICl9CiAgICAgIDwvZGl2PgogICAgPC9kaXY+CiAgKTsKfQo=
+import { SEVERITY_COLORS, SEVERIYY_LABELS, SCENARIO_LABELS } from '../hooks/useApi';
+
+export default function PatternDetail({ pattern, classification }) {
+  // classification is a plain dict returned directly from the backend classify() call.
+  // Field names match what classifier.py returns: category, confidence, explanation,
+  // oecd_reference (string), remediation (string).
+  const sev = classification?.severity || pattern?.severity || 'medium';
+  const category = classification?.category || pattern?.category || 'unknown';
+  const confidence = classification?.confidence || pattern?.confidence || 0;
+
+  // Backend taxonomy keys from classifier.py TAXONOMY dict
+  const categoryLabels = {
+    asymmetric_choice:      'Asymmetric Choice',
+    confirmshaming:         'Confirmshaming',
+    forced_consent:         'Forced Consent',
+    hidden_costs:           'Hidden Costs',
+    interface_interference:'Interface Interference',
+    misdirection:           'Misdirection',
+    nagging:                'Nagging',
+    obstruction:            'Obstruction',
+    sneaking:               'Sneaking',
+    urgency:                'Urgency',
+  };
+
+  const scenarioInfo = SCENARIO_LABELS[pattern?.scenario] || {};
+
+  return (
+    <div className="pattern-detail">
+      <div className="pattern-header">
+        <div
+          className="severity-badge"
+          style={{ backgroundColor: SEVERITY_COLORS[sev] }}
+        >
+          {SEVERITY_LABELS[sev]}
+        </div>
+        <span className="pattern-category">
+          {categoryLabels[category] || category}
+        </span>
+        <span className="pattern-scenario">
+          <span role="img" aria-hidden="true">{scenarioInfo.icon}</span> {scenarioInfo.label || pattern?.scenario}
+        </span>
+      </div>
+
+      <div className="pattern-body">
+        <p className="pattern-description">
+          {classification?.description || pattern?.description}
+        </p>
+
+        {confidence > 0 && (
+          <div className="confidence-bar">
+            <span className="confidence-label">
+              AI Confidence: {Math.round(confidence * 100)}%
+            </span>
+            <div className="confidence-track">
+              <div
+                className="confidence-fill"
+                style={{
+                  width: `${confidence * 100}% ,
+                  backgroundColor: 'hsl(121, 60%, 65%)',
+                }}
+               </div>
+            </div>
+            </div>
+        </div>
+        )}
+
+        <div className="pattern-tech">
+          <span className="tech-label">OECD Reference: </span>
+          <span className="tech-value">{classification?.oecd_reference || 'N/A'}</span>
+        </div>
+
+        <div className="pattern-remediation">
+          <h3 className="remediation-title">Remediation</h3>
+          <p className="remediation-text">
+            {classification?.remediation || pattern?.remediation || 'No remediation suggested'}
+          </p>
+        </div>
+    </div>
+    </div>
+  );
+}

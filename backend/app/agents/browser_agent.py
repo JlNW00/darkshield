@@ -1,4 +1,4 @@
-""" 
+"""'
 DarkShield Browser Agent - Nova Act powered dark pattern scanner.
 Runs browser automation scenarios to detect deceptive UI patterns.
 All blocking Nova Act calls are wrapped in asyncio.to_thread() to
@@ -10,6 +10,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger("darkshield.agent")
@@ -71,8 +72,8 @@ class DarkPatternAgent:
                 continue
 
             if on_event:
-                await on_event({
-                    "type": "scenario_start",
+                on_event({
+                    "type": "scenario_started",
                     "scenario": name,
                     "message": f"Starting scenario: {name}",
                 })
@@ -87,422 +88,357 @@ class DarkPatternAgent:
                 results.append(ScenarioResult(
                     scenario=name,
                     status="failed",
-                    duration_seconds=time.time() - start,
                     error=str(e),
+                    duration_seconds=time.time() - start,
                 ))
 
             if on_event:
-                await on_event({
-                    "type": "scenario_end",
+                on_event({
+                    "type": "scenario_completed",
                     "scenario": name,
                     "status": results[-1].status,
-                    "findings_count": len(results[-1].findings),
+                    "patterns_found": len(results[-1].findings),
                 })
 
         return results
 
-    # -- Blocking helpers (run inside thread) ---------------------------
-
-    def _run_nova_session(self, url: str, actions: list[dict]) -> list[dict]:
-        """
-        Synchronous helper that opens a Nova Act session and executes a
-        sequence of actions. Each action dict has:
-          - "instruction": str passed to nova.act()
-          - "name": human label for logging
-        Returns a list of result dicts with keys: name, success, result, screenshot_b64.
-        """
-        from nova_act import NovaAct  # imported here to avoid top-level dep issues
-
-        step_results = []
-        with NovaAct(
-            starting_page=url,
-            api_key=self.api_key,
-            headless=self.headless,
-        ) as nova:
-            for action in actions:
-                name = action.get("name", "step")
-                instruction = action["instruction"]
-                logger.debug(f"Nova Act step '{name}': {instruction}")
-                try:
-                    result = nova.act(instruction)
-                    # Capture screenshot after each step
-                    screenshot_b64 = None
-                    try:
-                        png_bytes = nova.page.screenshot()
-                        screenshot_b64 = base64.b64encode(png_bytes).decode()
-                    except Exception:
-                        pass
-
-                    step_results.append({
-                        "name": name,
-                        "success": getattr(result, "success", True),
-                        "result": str(getattr(result, "response", result)),
-                        "screenshot_b64": screenshot_b64,
-                    })
-                except Exception as e:
-                    step_results.append({
-                        "name": name,
-                        "success": False,
-                        "result": str(e),
-                        "screenshot_b64": None,
-                    })
-        return step_results
-
-    # -- Scenarios ------------------------------------------------------
-
+    # -----------------------------------------------------------------------
+    # Scenario: Cookie Consent
+    # -----------------------------------------------------------------------
     async def _scenario_cookie_consent(
-        self, url: str, on_event: Optional[Callable] = None,
+        self, url: str, on_event: Optional[Callable] = None
     ) -> ScenarioResult:
-        """Test cookie consent banners for dark patterns."""
+        """Detect dark patterns in cookie consent flows."""
+        from nova_act import NovaAct
+
         findings = []
+        steps = 0
 
-        actions = [
-            {
-                "name": "detect_banner",
-                "instruction": (
-                    "Look for a cookie consent banner or popup on this page. "
-                    "Describe what you see: is there an accept button, a reject/decline button, "
-                    "and a settings/customize button? Note the relative sizes and colors of the buttons."
-                ),
-            },
-            {
-                "name": "check_reject",
-                "instruction": (
-                    "Try to reject all cookies or decline. Is there a visible 'Reject All' or "
-                    "'Decline' button? If so, click it. If not, describe what options are available "
-                    "to dismiss cookies without accepting."
-                ),
-            },
-            {
-                "name": "check_preselected",
-                "instruction": (
-                    "If there is a cookie settings/preferences panel, open it. "
-                    "Check if any non-essential cookie categories are pre-selected/pre-checked. "
-                    "List which categories are toggled on by default."
-                ),
-            },
-            {
-                "name": "check_dismiss",
-                "instruction": (
-                    "Try to close or dismiss the cookie banner without making a choice. "
-                    "Is there an X button or can you click outside the banner? "
-                    "Does the banner block interaction with the page underneath?"
-                ),
-            },
-        ]
+        def _run():
+            nonlocal steps
+            with NovaAct(starting_url=url, api_key=self.api_key, headless=self.headless) as nova:
+                # Step 1: Look for cookie consent banner
+                result = nova.act(
+                    "Look for a cookie consent banner or privacy notice. "
+                    "If found, describe what options are available (accept/reject/customize). "
+                    "Note if the reject or customize option is harder to find than accept.",
+                    schema={
+                        "type": "object",
+                        "properties": {
+                            "banner_found": {"type": "boolean"},
+                            "accept_prominent": {"type": "boolean"},
+                            "reject_difficult": {"type": "boolean"},
+                            "pre_checked": {"type": "boolean"},
+                            "description": {"type": "string"},
+                        }
+                    }
+                )
+                steps += 1
 
-        if on_event:
-            await on_event({"type": "step", "scenario": "cookie_consent", "message": "Launching browser for cookie consent audit..."})
+                parsed = result.parsed_response or {}
+                if parsed.get("banner_found"):
+                    if parsed.get("reject_difficult") or parsed.get("accept_prominent"):
+                        screenshot = nova.take_screenshot()
+                        findings.append(Finding(
+                            pattern_type="asymmetric_choice",
+                            description=parsed.get("description", "Cookie consent uses asymmetric choice design"),
+                            severity="high",
+                            screenshot_b64=_encode_screenshot(screenshot),
+                        ))
 
-        # Run all blocking Nova Act steps in a thread
-        step_results = await asyncio.to_thread(self._run_nova_session, url, actions)
+                    if parsed.get("pre_checked"):
+                        screenshot = nova.take_screenshot()
+                        findings.append(Finding(
+                            pattern_type="forced_consent",
+                            description="Cookie options are pre-selected without explicit user choice",
+                            severity="high",
+                            screenshot_b64=_encode_screenshot(screenshot),
+                        ))
 
-        steps_completed = sum(1 for s in step_results if s["success"])
+                # Step 2: Check for nagging if rejected
+                result2 = nova.act(
+                    "Try to find and click the 'reject all' or 'decline' option for cookies. "
+                    "After declining, does a new popup or prompt appear asking to reconsider?",
+                    schema={
+                        "type": "object",
+                        "properties": {
+                            "reject_found": {"type": "boolean"},
+                            "re_prompt_appeared": {"type": "boolean"},
+                            "description": {"type": "string"},
+                        }
+                    }
+                )
+                steps += 1
 
-        # Analyze results for dark patterns
-        for step in step_results:
-            result_text = step["result"].lower()
-
-            if step["name"] == "detect_banner":
-                if "no" in result_text and ("reject" in result_text or "decline" in result_text):
+                parsed2 = result2.parsed_response or {}
+                if parsed2.get("re_prompt_appeared"):
+                    screenshot = nova.take_screenshot()
                     findings.append(Finding(
-                        pattern_type="asymmetric_choice",
-                        description="Cookie banner has Accept button but no visible Reject option",
-                        severity="high",
-                        screenshot_b64=step["screenshot_b64"],
-                        element_text=step["result"],
-                    ))
-                if "larger" in result_text or "prominent" in result_text or "bigger" in result_text:
-                    findings.append(Finding(
-                        pattern_type="interface_interference",
-                        description="Accept button is visually more prominent than alternatives",
+                        pattern_type="nagging",
+                        description=parsed2.get("description", "Site re-prompts after cookie rejection"),
                         severity="medium",
-                        screenshot_b64=step["screenshot_b64"],
-                        element_text=step["result"],
+                        screenshot_b64=_encode_screenshot(screenshot),
                     ))
 
-            elif step["name"] == "check_preselected":
-                if "pre-selected" in result_text or "pre-checked" in result_text or "toggled on" in result_text:
-                    findings.append(Finding(
-                        pattern_type="forced_consent",
-                        description="Non-essential cookies are pre-selected by default",
-                        severity="high",
-                        screenshot_b64=step["screenshot_b64"],
-                        element_text=step["result"],
-                    ))
+        try:
+            await asyncio.to_thread(_run)
+            return ScenarioResult(scenario="cookie_consent", status="completed", findings=findings, steps_completed=steps)
+        except Exception as e:
+            logger.exception("cookie_consent scenario failed")
+            return ScenarioResult(scenario="cookie_consent", status="failed", error=str(e), steps_completed=steps)
 
-            elif step["name"] == "check_dismiss":
-                if "block" in result_text or "cannot" in result_text or "no x" in result_text:
-                    findings.append(Finding(
-                        pattern_type="obstruction",
-                        description="Cookie banner blocks page interaction and cannot be easily dismissed",
-                        severity="medium",
-                        screenshot_b64=step["screenshot_b64"],
-                        element_text=step["result"],
-                    ))
-
-        return ScenarioResult(
-            scenario="cookie_consent",
-            status="completed",
-            findings=findings,
-            steps_completed=steps_completed,
-        )
-
+    # -----------------------------------------------------------------------
+    # Scenario: Subscription Cancellation
+    # -----------------------------------------------------------------------
     async def _scenario_subscription_cancel(
-        self, url: str, on_event: Optional[Callable] = None,
+        self, url: str, on_event: Optional[Callable] = None
     ) -> ScenarioResult:
-        """Test subscription cancellation flow for dark patterns."""
+        """Detect dark patterns in subscription cancellation flows."""
+        from nova_act import NovaAct
+
         findings = []
+        steps = 0
 
-        actions = [
-            {
-                "name": "find_cancel",
-                "instruction": (
-                    "Navigate to account settings, subscription, or billing page. "
-                    "Look for a cancel subscription or cancel membership option. "
-                    "Describe where you found it and how many clicks it took to reach."
-                ),
-            },
-            {
-                "name": "start_cancel",
-                "instruction": (
-                    "Click the cancel button or link. What happens? Is there a confirmation page, "
-                    "a survey, discount offers, guilt-tripping language, or multiple steps? "
-                    "Describe each screen you encounter."
-                ),
-            },
-            {
-                "name": "count_steps",
-                "instruction": (
-                    "Continue through the entire cancellation flow until you reach the final "
-                    "confirmation. Count every page, popup, and confirmation step. "
-                    "Note any emotional language, special offers, or confusing button labels."
-                ),
-            },
-            {
-                "name": "verify_cancel",
-                "instruction": (
-                    "After completing the cancellation flow, verify the subscription status. "
-                    "Is it actually cancelled? Or is it scheduled for end of billing period? "
-                    "Was there a final 'are you sure?' confirmation?"
-                ),
-            },
-        ]
+        def _run():
+            nonlocal steps
+            with NovaAct(starting_url=url, api_key=self.api_key, headless=self.headless) as nova:
+                result = nova.act(
+                    "Navigate to account settings or subscription management. "
+                    "Look for cancel subscription or unsubscribe options. "
+                    "Describe how easy or difficult it is to find the cancellation option.",
+                    schema={
+                        "type": "object",
+                        "properties": {
+                            "cancel_found": {"type": "boolean"},
+                            "steps_to_cancel": {"type": "integer"},
+                            "obstruction_found": {"type": "boolean"},
+                            "confirmshaming_found": {"type": "boolean"},
+                            "description": {"type": "string"},
+                        }
+                    }
+                )
+                steps += 1
 
-        if on_event:
-            await on_event({"type": "step", "scenario": "subscription_cancel", "message": "Testing subscription cancellation flow..."})
-
-        step_results = await asyncio.to_thread(self._run_nova_session, url, actions)
-        steps_completed = sum(1 for s in step_results if s["success"])
-
-        for step in step_results:
-            result_text = step["result"].lower()
-
-            if step["name"] == "find_cancel":
-                if any(w in result_text for w in ["couldn't find", "unable to locate", "no cancel", "not found"]):
+                parsed = result.parsed_response or {}
+                if parsed.get("obstruction_found"):
+                    screenshot = nova.take_screenshot()
                     findings.append(Finding(
                         pattern_type="obstruction",
-                        description="Cancel option is hidden or extremely difficult to find",
-                        severity="critical",
-                        screenshot_b64=step["screenshot_b64"],
-                        element_text=step["result"],
+                        description=parsed.get("description", "Subscription cancellation is unnecessarily difficult"),
+                        severity="high",
+                        screenshot_b64=_encode_screenshot(screenshot),
                     ))
 
-            elif step["name"] == "start_cancel":
-                if any(w in result_text for w in ["guilt", "miss out", "lose", "sad", "sorry to see"]):
+                if parsed.get("confirmshaming_found"):
+                    screenshot = nova.take_screenshot()
                     findings.append(Finding(
                         pattern_type="confirmshaming",
-                        description="Cancellation flow uses guilt-tripping or emotional language",
-                        severity="high",
-                        screenshot_b64=step["screenshot_b64"],
-                        element_text=step["result"],
-                    ))
-                if any(w in result_text for w in ["discount", "offer", "deal", "special price"]):
-                    findings.append(Finding(
-                        pattern_type="obstruction",
-                        description="Retention offers interrupt the cancellation flow",
+                        description="Cancellation flow uses guilt-inducing language",
                         severity="medium",
-                        screenshot_b64=step["screenshot_b64"],
-                        element_text=step["result"],
+                        screenshot_b64=_encode_screenshot(screenshot),
                     ))
 
-            elif step["name"] == "count_steps":
-                if any(w in result_text for w in ["multiple", "several", "many steps", "5", "6", "7"]):
+                # Check for win-back offers / nagging
+                result2 = nova.act(
+                    "Continue the cancellation process. "
+                    "Are there multiple screens asking you to reconsider, offers to stay, "
+                    "or emotional appeals before you can complete cancellation?",
+                    schema={
+                        "type": "object",
+                        "properties": {
+                            "multiple_screens": {"type": "boolean"},
+                            "emotional_appeal": {"type": "boolean"},
+                            "description": {"type": "string"},
+                        }
+                    }
+                )
+                steps += 1
+
+                parsed2 = result2.parsed_response or {}
+                if parsed2.get("multiple_screens") or parsed2.get("emotional_appeal"):
+                    screenshot = nova.take_screenshot()
                     findings.append(Finding(
-                        pattern_type="obstruction",
-                        description="Cancellation requires an excessive number of steps",
-                        severity="high",
-                        screenshot_b64=step["screenshot_b64"],
-                        element_text=step["result"],
+                        pattern_type="nagging",
+                        description=parsed2.get("description", "Multiple re-engagement screens during cancellation"),
+                        severity="medium",
+                        screenshot_b64=_encode_screenshot(screenshot),
                     ))
 
-        return ScenarioResult(
-            scenario="subscription_cancel",
-            status="completed",
-            findings=findings,
-            steps_completed=steps_completed,
-        )
+        try:
+            await asyncio.to_thread(_run)
+            return ScenarioResult(scenario="subscription_cancel", status="completed", findings=findings, steps_completed=steps)
+        except Exception as e:
+            logger.exception("subscription_cancel scenario failed")
+            return ScenarioResult(scenario="subscription_cancel", status="failed", error=str(e), steps_completed=steps)
 
+    # -----------------------------------------------------------------------
+    # Scenario: Checkout Flow
+    # -----------------------------------------------------------------------
     async def _scenario_checkout_flow(
-        self, url: str, on_event: Optional[Callable] = None,
+        self, url: str, on_event: Optional[Callable] = None
     ) -> ScenarioResult:
-        """Test checkout flow for sneaky additions and hidden costs."""
+        """Detect dark patterns in checkout flows."""
+        from nova_act import NovaAct
+
         findings = []
+        steps = 0
 
-        actions = [
-            {
-                "name": "add_item",
-                "instruction": (
-                    "Find a product on this site and add it to the cart. "
-                    "Then navigate to the cart/checkout page. "
-                    "Describe what you see in the cart."
-                ),
-            },
-            {
-                "name": "check_extras",
-                "instruction": (
-                    "Look at all items in the cart. Are there any items you didn't add? "
-                    "Check for pre-selected add-ons, insurance, warranties, donations, "
-                    "or any extras that were automatically included."
-                ),
-            },
-            {
-                "name": "check_pricing",
-                "instruction": (
-                    "Examine the price breakdown. Are there any hidden fees, service charges, "
-                    "or costs that weren't shown on the product page? Compare the displayed "
-                    "product price with the checkout total before shipping."
-                ),
-            },
-            {
-                "name": "check_urgency",
-                "instruction": (
-                    "Look for urgency or scarcity cues: countdown timers, 'only X left', "
-                    "'Y people viewing this', limited time offers, or pressure to complete "
-                    "checkout quickly. Describe any you find."
-                ),
-            },
-        ]
+        def _run():
+            nonlocal steps
+            with NovaAct(starting_url=url, api_key=self.api_key, headless=self.headless) as nova:
+                result = nova.act(
+                    "Navigate to a product page and begin the checkout process. "
+                    "Look for: hidden fees appearing late, pre-checked add-ons, "
+                    "urgency timers, or items added to cart without consent.",
+                    schema={
+                        "type": "object",
+                        "properties": {
+                            "hidden_fees_found": {"type": "boolean"},
+                            "pre_checked_addons": {"type": "boolean"},
+                            "urgency_timer": {"type": "boolean"},
+                            "sneak_items": {"type": "boolean"},
+                            "description": {"type": "string"},
+                        }
+                    }
+                )
+                steps += 1
 
-        if on_event:
-            await on_event({"type": "step", "scenario": "checkout_flow", "message": "Testing checkout for hidden costs and sneaky additions..."})
-
-        step_results = await asyncio.to_thread(self._run_nova_session, url, actions)
-        steps_completed = sum(1 for s in step_results if s["success"])
-
-        for step in step_results:
-            result_text = step["result"].lower()
-
-            if step["name"] == "check_extras":
-                if any(w in result_text for w in ["pre-selected", "automatically added", "didn't add", "included by default"]):
-                    findings.append(Finding(
-                        pattern_type="sneaking",
-                        description="Items or services were pre-added to cart without explicit user action",
-                        severity="critical",
-                        screenshot_b64=step["screenshot_b64"],
-                        element_text=step["result"],
-                    ))
-
-            elif step["name"] == "check_pricing":
-                if any(w in result_text for w in ["hidden fee", "service charge", "not shown", "additional cost", "higher"]):
+                parsed = result.parsed_response or {}
+                if parsed.get("hidden_fees_found"):
+                    screenshot = nova.take_screenshot()
                     findings.append(Finding(
                         pattern_type="hidden_costs",
-                        description="Fees or charges not disclosed until checkout",
+                        description=parsed.get("description", "Fees not disclosed until late in checkout"),
                         severity="critical",
-                        screenshot_b64=step["screenshot_b64"],
-                        element_text=step["result"],
+                        screenshot_b64=_encode_screenshot(screenshot),
                     ))
 
-            elif step["name"] == "check_urgency":
-                if any(w in result_text for w in ["countdown", "timer", "only", "left", "viewing", "hurry", "limited"]):
+                if parsed.get("pre_checked_addons"):
+                    screenshot = nova.take_screenshot()
+                    findings.append(Finding(
+                        pattern_type="forced_consent",
+                        description="Add-ons or extras are pre-selected in checkout",
+                        severity="high",
+                        screenshot_b64=_encode_screenshot(screenshot),
+                    ))
+
+                if parsed.get("urgency_timer"):
+                    screenshot = nova.take_screenshot()
                     findings.append(Finding(
                         pattern_type="urgency",
-                        description="Artificial urgency or scarcity cues used to pressure purchase",
+                        description="Artificial countdown timer present in checkout",
                         severity="medium",
-                        screenshot_b64=step["screenshot_b64"],
-                        element_text=step["result"],
+                        screenshot_b64=_encode_screenshot(screenshot),
                     ))
 
-        return ScenarioResult(
-            scenario="checkout_flow",
-            status="completed",
-            findings=findings,
-            steps_completed=steps_completed,
-        )
-
-    async def _scenario_account_deletion(
-        self, url: str, on_event: Optional[Callable] = None,
-    ) -> ScenarioResult:
-        """Test account deletion flow for obstruction patterns."""
-        findings = []
-
-        actions = [
-            {
-                "name": "find_delete",
-                "instruction": (
-                    "Navigate to account settings and look for an option to delete the account, "
-                    "close the account, or deactivate. Describe where you found it "
-                    "(or if you couldn't find it)."
-                ),
-            },
-            {
-                "name": "start_delete",
-                "instruction": (
-                    "Click the delete/close account option. Describe the process: "
-                    "how many confirmations, what warnings are shown, is there emotional "
-                    "language, do they require contacting support instead?"
-                ),
-            },
-            {
-                "name": "check_barriers",
-                "instruction": (
-                    "Check for barriers: do you need to call a phone number, send an email, "
-                    "chat with support, or wait a cooling period? Note any alternative actions "
-                    "being pushed (like 'deactivate instead' or 'take a break')."
-                ),
-            },
-        ]
-
-        if on_event:
-            await on_event({"type": "step", "scenario": "account_deletion", "message": "Testing account deletion accessibility..."})
-
-        step_results = await asyncio.to_thread(self._run_nova_session, url, actions)
-        steps_completed = sum(1 for s in step_results if s["success"])
-
-        for step in step_results:
-            result_text = step["result"].lower()
-
-            if step["name"] == "find_delete":
-                if any(w in result_text for w in ["couldn't find", "unable", "no option", "not available"]):
+                if parsed.get("sneak_items"):
+                    screenshot = nova.take_screenshot()
                     findings.append(Finding(
-                        pattern_type="obstruction",
-                        description="No visible account deletion option in settings",
+                        pattern_type="sneaking",
+                        description="Items added to cart without explicit user consent",
                         severity="critical",
-                        screenshot_b64=step["screenshot_b64"],
-                        element_text=step["result"],
+                        screenshot_b64=_encode_screenshot(screenshot),
                     ))
 
-            elif step["name"] == "check_barriers":
-                if any(w in result_text for w in ["call", "phone", "contact support", "email support", "chat with"]):
+        try:
+            await asyncio.to_thread(_run)
+            return ScenarioResult(scenario="checkout_flow", status="completed", findings=findings, steps_completed=steps)
+        except Exception as e:
+            logger.exception("checkout_flow scenario failed")
+            return ScenarioResult(scenario="checkout_flow", status="failed", error=str(e), steps_completed=steps)
+
+    # -----------------------------------------------------------------------
+    # Scenario: Account Deletion
+    # -----------------------------------------------------------------------
+    async def _scenario_account_deletion(
+        self, url: str, on_event: Optional[Callable] = None
+    ) -> ScenarioResult:
+        """Detect dark patterns in account deletion flows."""
+        from nova_act import NovaAct
+
+        findings = []
+        steps = 0
+
+        def _run():
+            nonlocal steps
+            with NovaAct(starting_url=url, api_key=self.api_key, headless=self.headless) as nova:
+                result = nova.act(
+                    "Navigate to account settings and look for the option to delete or deactivate "
+                    "the account. Describe how easy it is to find and complete account deletion. "
+                    "Note any dark patterns like hidden options, required contact with support, "
+                    "or emotional manipulation.",
+                    schema={
+                        "type": "object",
+                        "properties": {
+                            "delete_option_found": {"type": "boolean"},
+                            "requires_support_contact": {"type": "boolean"},
+                            "obstruction_found": {"type": "boolean"},
+                            "misdirection_found": {"type": "boolean"},
+                            "description": {"type": "string"},
+                        }
+                    }
+                )
+                steps += 1
+
+                parsed = result.parsed_response or {}
+                if parsed.get("obstruction_found") or parsed.get("requires_support_contact"):
+                    screenshot = nova.take_screenshot()
                     findings.append(Finding(
                         pattern_type="obstruction",
-                        description="Account deletion requires contacting support instead of self-service",
-                        severity="high",
-                        screenshot_b64=step["screenshot_b64"],
-                        element_text=step["result"],
+                        description=parsed.get("description", "Account deletion is unnecessarily obstructed"),
+                        severity="critical",
+                        screenshot_b64=_encode_screenshot(screenshot),
                     ))
-                if any(w in result_text for w in ["deactivate instead", "take a break", "pause"]):
+
+                if parsed.get("misdirection_found"):
+                    screenshot = nova.take_screenshot()
                     findings.append(Finding(
                         pattern_type="misdirection",
-                        description="Deletion flow pushes alternative actions like deactivation",
-                        severity="medium",
-                        screenshot_b64=step["screenshot_b64"],
-                        element_text=step["result"],
+                        description="Account settings use misdirection to hide deletion option",
+                        severity="high",
+                        screenshot_b64=_encode_screenshot(screenshot),
                     ))
 
-        return ScenarioResult(
-            scenario="account_deletion",
-            status="completed",
-            findings=findings,
-            steps_completed=steps_completed,
-        )
+        try:
+            await asyncio.to_thread(_run)
+            return ScenarioResult(scenario="account_deletion", status="completed", findings=findings, steps_completed=steps)
+        except Exception as e:
+            logger.exception("account_deletion scenario failed")
+            return ScenarioResult(scenario="account_deletion", status="failed", error=str(e), steps_completed=steps)
+
+
+# ---------------------------------------------------------------------------
+# AuditResult dataclass (used by routes)
+# ---------------------------------------------------------------------------
+@dataclass
+class AuditResult:
+    """Top-level result object tracked per audit."""
+    audit_id: str
+    target_url: str
+    status: str  # running, completed, failed
+    findings: list = field(default_factory=list)
+    risk_score: float = 0.0
+    started_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    completed_at: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _encode_screenshot(screenshot: Any) -> Optional[str]:
+    """Encode a Nova Act screenshot to base64."""
+    if screenshot is None:
+        return None
+    try:
+        if isinstance(screenshot, bytes):
+            return base64.b64encode(screenshot).decode()
+        if isinstance(screenshot, str):
+            return screenshot
+        # Nova Act may return an object with .data or .bytes
+        if hasattr(screenshot, 'data'):
+            return base64.b64encode(screenshot.data).decode()
+        if hasattr(screenshot, 'bytes'):
+            return base64.b64encode(screenshot.bytes).decode()
+    except Exception:
+        logger.exception("Failed to encode screenshot")
+    return None

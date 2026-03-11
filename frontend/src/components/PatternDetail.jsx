@@ -1,22 +1,28 @@
 import { SEVERITY_COLORS, SEVERITY_LABELS, SCENARIO_LABELS } from '../hooks/useApi';
 
 export default function PatternDetail({ pattern, classification }) {
-  const sev = classification?.severity || pattern.severity || 'medium';
-  const category = classification?.ai_category || pattern.category || 'unknown';
-  const confidence = classification?.ai_confidence || pattern.confidence || 0;
+  // classification is a plain dict returned directly from the backend classify() call.
+  // Field names match what classifier.py returns: category, confidence, explanation,
+  // oecd_reference (string), remediation (string).
+  const sev = classification?.severity || pattern?.severity || 'medium';
+  const category = classification?.category || pattern?.category || 'unknown';
+  const confidence = classification?.confidence || pattern?.confidence || 0;
 
+  // Backend taxonomy keys from classifier.py TAXONOMY dict
   const categoryLabels = {
-    confirmshaming: 'Confirmshaming',
-    misdirection: 'Misdirection',
-    roach_motel: 'Roach Motel',
-    forced_continuity: 'Forced Continuity',
-    hidden_costs: 'Hidden Costs',
-    trick_questions: 'Trick Questions',
-    disguised_ads: 'Disguised Ads',
-    friend_spam: 'Friend Spam',
-    privacy_zuckering: 'Privacy Zuckering',
-    bait_and_switch: 'Bait & Switch',
+    asymmetric_choice:     'Asymmetric Choice',
+    confirmshaming:        'Confirmshaming',
+    forced_consent:        'Forced Consent',
+    hidden_costs:          'Hidden Costs',
+    interface_interference:'Interface Interference',
+    misdirection:          'Misdirection',
+    nagging:               'Nagging',
+    obstruction:           'Obstruction',
+    sneaking:              'Sneaking',
+    urgency:               'Urgency',
   };
+
+  const scenarioInfo = SCENARIO_LABELS[pattern?.scenario] || {};
 
   return (
     <div className="pattern-detail">
@@ -31,20 +37,14 @@ export default function PatternDetail({ pattern, classification }) {
           {categoryLabels[category] || category}
         </span>
         <span className="pattern-scenario">
-          {SCENARIO_LABELS[pattern.scenario]?.icon}{' '}
-          {SCENARIO_LABELS[pattern.scenario]?.label || pattern.scenario}
+          {scenarioInfo.icon} {scenarioInfo.label || pattern?.scenario}
         </span>
       </div>
 
       <div className="pattern-body">
         <p className="pattern-description">
-          {classification?.description || pattern.description}
+          {classification?.description || pattern?.description}
         </p>
-
-        <div className="pattern-evidence">
-          <strong>Evidence:</strong>
-          <p>{classification?.evidence_summary || pattern.evidence}</p>
-        </div>
 
         {confidence > 0 && (
           <div className="confidence-bar">
@@ -68,32 +68,24 @@ export default function PatternDetail({ pattern, classification }) {
           </div>
         )}
 
-        {classification?.ai_reasoning && (
+        {classification?.explanation && (
           <div className="pattern-reasoning">
             <strong>AI Reasoning:</strong>
-            <p>{classification.ai_reasoning}</p>
+            <p>{classification.explanation}</p>
           </div>
         )}
 
-        {classification?.oecd_reference && Object.keys(classification.oecd_reference).length > 0 && (
+        {classification?.oecd_reference && (
           <div className="oecd-reference">
             <strong>Regulatory Reference:</strong>
-            <div className="oecd-details">
-              <div><em>Guideline:</em> {classification.oecd_reference.guideline}</div>
-              <div><em>Principle:</em> {classification.oecd_reference.principle}</div>
-              <div><em>Regulation:</em> {classification.oecd_reference.regulation}</div>
-            </div>
+            <p>{classification.oecd_reference}</p>
           </div>
         )}
 
-        {classification?.remediation && classification.remediation.length > 0 && (
-          <div className="remediation">
+        {classification?.remediation && (
+          <div className="pattern-remediation">
             <strong>Remediation:</strong>
-            <ul>
-              {classification.remediation.map((r, i) => (
-                <li key={i}>{r}</li>
-              ))}
-            </ul>
+            <p>{classification.remediation}</p>
           </div>
         )}
       </div>

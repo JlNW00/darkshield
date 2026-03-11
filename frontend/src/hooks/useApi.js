@@ -49,35 +49,65 @@ export function getReportUrl(auditId) {
 
 /**
  * Connect to the audit WebSocket for real-time events.
- * Returns { ws, close } where ws is the WebSocket instance.
+ * Returns { close, readyState } with automatic reconnection via exponential backoff.
  */
 export function connectAuditWebSocket(auditId, onMessage, onError) {
-  const ws = new WebSocket(`${WS_BASE}/api/v1/ws/audit/${auditId}`);
+  const wsUrl = `${WS_BASE}/api/v1/ws/audit/${auditId}`;
+  let ws = null;
+  let retryDelay = 1000;
+  const MAX_DELAY = 16000;
+  let stopped = false;
+  let retryTimeout = null;
 
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      // Backend sends 'keepalive' (not 'heartbeat') — filter it out
-      if (data.type !== 'keepalive') {
+  function connect() {
+    ws = new WebSocket(wsUrl);
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        // Backend sends 'keepalive' (not 'heartbeat') — filter it out
+        if (data.type === 'keepalive') return;
+        // Stop reconnecting once audit reaches a terminal state
+        if (data.type === 'pipeline_completed' || data.type === 'pipeline_error') {
+          stopped = true;
+        }
         onMessage(data);
+        // Reset backoff on successful message
+        retryDelay = 1000;
+      } catch (e) {
+        console.error('WS parse error:', e);
       }
-    } catch (e) {
-      console.error('WS parse error:', e);
-    }
-  };
+    };
 
-  ws.onerror = (event) => {
-    console.error('WS error:', event);
-    if (onError) onError(event);
-  };
+    ws.onclose = () => {
+      console.log(`WS closed for audit: ${auditId}`);
+      if (!stopped) {
+        console.log(`Reconnecting in ${retryDelay}ms...`);
+        retryTimeout = setTimeout(() => {
+          retryDelay = Math.min(retryDelay * 2, MAX_DELAY);
+          connect();
+        }, retryDelay);
+      }
+    };
 
-  ws.onclose = () => {
-    console.log('WS closed for audit:', auditId);
-  };
+    ws.onerror = (event) => {
+      console.error('WS error:', event);
+      if (onError) onError(event);
+    };
+  }
 
+  connect();
+
+  // Return an object that behaves like the old { ws, close } but supports cleanup
   return {
-    ws,
-    close: () => ws.close(),
+    close() {
+      stopped = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
+      if (ws) ws.close();
+    },
+    get readyState() {
+      return ws ? ws.readyState : WebSocket.CLOSED;
+    },
   };
 }
 
@@ -102,5 +132,5 @@ export const SCENARIO_LABELS = {
   cookie_consent:      { label: 'Cookie Consent',      icon: '🍪' },
   subscription_cancel: { label: 'Subscription Cancel',  icon: '📋' },
   checkout_flow:       { label: 'Checkout Flow',         icon: '🛒' },
-  account_deletion:    { label: 'Account Deletion',      icon: '🗑️' },
+  account_deletion:    { label: 'Account Deletion',     icon: '🗑️' },
 };
